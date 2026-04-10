@@ -101,9 +101,10 @@ export function parseShopeeOrders(
       // Voucher hanya berlaku di baris pertama
       const voucher = idx === 0 ? voucherSeller : 0
 
-      // Real Omzet = (HargaAfterDisc - ((HargaAfterDisc - Voucher) * 14%)) * Qty
-      const fee = (hargaAfterDisc - voucher) * 0.14
-      const realOmzetPerItem = Math.round((hargaAfterDisc - fee) * qty)
+      // Real Omzet = ((HargaAfterDisc - Voucher) - ((HargaAfterDisc - Voucher) * 14%)) * Qty
+      const basePrice = hargaAfterDisc - voucher
+      const fee = basePrice * 0.14
+      const realOmzetPerItem = Math.round((basePrice - fee) * qty)
 
       // SKU = Nomor Referensi SKU
       const sku = String(item['Nomor Referensi SKU'] || '').trim() || null

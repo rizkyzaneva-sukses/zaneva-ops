@@ -3,9 +3,9 @@
 import { AppLayout } from '@/components/layout/app-layout'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
-import { formatRupiah, formatDate } from '@/lib/utils'
+import { formatRupiah, formatDate, downloadCSV } from '@/lib/utils'
 import { useToast } from '@/components/ui/toaster'
-import { FileText, Plus, ChevronLeft, ChevronRight, Search, Eye } from 'lucide-react'
+import { FileText, Plus, ChevronLeft, ChevronRight, Search, Eye, FileDown, Printer, X } from 'lucide-react'
 
 const PO_STATUS_COLOR: Record<string, string> = {
   OPEN: 'badge-warning', PARTIAL: 'badge-info', COMPLETED: 'badge-success', CANCELLED: 'badge-danger',
@@ -117,11 +117,206 @@ function CreatePOModal({ vendors, products, onClose }: { vendors: any[]; product
   )
 }
 
+function DetailPOModal({ po, onClose, onDownload, onPrint }: { po: any; onClose: () => void; onDownload: (po: any) => void; onPrint: (po: any) => void }) {
+  const totalOutstanding = po.totalAmount - po.totalPaid
+  const progressPct = po.totalQtyOrder > 0 ? Math.round((po.totalQtyReceived / po.totalQtyOrder) * 100) : 0
+
+  return (
+    <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/75 backdrop-blur-sm p-4">
+      <div className="bg-zinc-900 border border-zinc-700 rounded-2xl w-full max-w-3xl max-h-[90vh] flex flex-col overflow-hidden shadow-2xl">
+        {/* Header */}
+        <div className="flex items-start justify-between px-6 py-4 border-b border-zinc-800">
+          <div>
+            <p className="text-xs text-zinc-500 mb-0.5">Detail PO:</p>
+            <h2 className="text-sm font-bold text-emerald-400 font-mono">{po.poNumber}</h2>
+            <p className="text-xs text-zinc-400 mt-1">Vendor: <span className="text-zinc-200">{po.vendorName}</span></p>
+          </div>
+          <div className="flex items-start gap-6 text-right">
+            <div>
+              <p className="text-xs text-zinc-500">Tanggal:</p>
+              <p className="text-xs text-zinc-200">{formatDate(po.poDate)}</p>
+            </div>
+            <div>
+              <p className="text-xs text-zinc-500">Progress</p>
+              <p className="text-xs text-zinc-200 font-bold">{progressPct}%  <span className="text-zinc-500 font-normal">{po.totalQtyReceived}/{po.totalQtyOrder}</span></p>
+            </div>
+            <div className="flex gap-1.5 items-center">
+              <span className="badge-warning text-[10px] font-bold">{po.status}</span>
+            </div>
+            <button onClick={onClose} className="text-zinc-500 hover:text-white transition-colors"><X size={18} /></button>
+          </div>
+        </div>
+
+        {/* Stats */}
+        <div className="grid grid-cols-3 divide-x divide-zinc-800 border-b border-zinc-800">
+          <div className="px-6 py-3">
+            <p className="text-xs text-zinc-500 mb-1">Total PO</p>
+            <p className="text-sm font-bold text-white">{formatRupiah(po.totalAmount, true)}</p>
+          </div>
+          <div className="px-6 py-3">
+            <p className="text-xs text-zinc-500 mb-1">Terbayar</p>
+            <p className="text-sm font-bold text-emerald-400">{formatRupiah(po.totalPaid, true)}</p>
+          </div>
+          <div className="px-6 py-3">
+            <p className="text-xs text-zinc-500 mb-1">Outstanding</p>
+            <p className="text-sm font-bold text-amber-400">{formatRupiah(totalOutstanding, true)}</p>
+          </div>
+        </div>
+
+        {/* Items Table */}
+        <div className="flex-1 overflow-auto">
+          <table className="w-full text-xs">
+            <thead className="sticky top-0 bg-zinc-800/80 backdrop-blur-sm">
+              <tr>
+                <th className="text-left px-4 py-2 text-zinc-400 font-medium w-24">SKU</th>
+                <th className="text-left px-4 py-2 text-zinc-400 font-medium">Produk</th>
+                <th className="text-right px-4 py-2 text-zinc-400 font-medium w-24">HPP</th>
+                <th className="text-right px-4 py-2 text-zinc-400 font-medium w-16">Order</th>
+                <th className="text-right px-4 py-2 text-zinc-400 font-medium w-20">Received</th>
+                <th className="text-right px-4 py-2 text-zinc-400 font-medium w-20">Outstanding</th>
+                <th className="text-right px-4 py-2 text-zinc-400 font-medium w-28">Subtotal</th>
+                <th className="text-center px-4 py-2 text-zinc-400 font-medium w-20">Status</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-zinc-800">
+              {(po.items || []).map((item: any) => {
+                const outstanding = item.qtyOrder - (item.qtyReceived || 0)
+                const subtotal = item.qtyOrder * item.unitPrice
+                return (
+                  <tr key={item.id} className="hover:bg-zinc-800/50 transition-colors">
+                    <td className="px-4 py-2 font-mono text-emerald-400">{item.sku}</td>
+                    <td className="px-4 py-2 text-zinc-200">{item.productName}</td>
+                    <td className="px-4 py-2 text-right text-zinc-400">{formatRupiah(item.unitPrice, true)}</td>
+                    <td className="px-4 py-2 text-right text-zinc-200 font-bold">{item.qtyOrder}</td>
+                    <td className="px-4 py-2 text-right text-emerald-400">{item.qtyReceived || 0}</td>
+                    <td className="px-4 py-2 text-right text-amber-400">{outstanding}</td>
+                    <td className="px-4 py-2 text-right text-zinc-200">{formatRupiah(subtotal, true)}</td>
+                    <td className="px-4 py-2 text-center">
+                      <span className={outstanding > 0 ? 'badge-warning text-[10px]' : 'badge-success text-[10px]'}>
+                        {outstanding > 0 ? 'OPEN' : 'DONE'}
+                      </span>
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Footer Actions */}
+        <div className="flex items-center justify-between px-6 py-4 border-t border-zinc-800">
+          <p className="text-xs text-zinc-500">{po.items?.length || 0} item • dibuat oleh {po.createdBy || '-'}</p>
+          <div className="flex gap-2">
+            <button onClick={() => onDownload(po)} className="flex items-center gap-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-blue-400 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors border border-zinc-700">
+              <FileDown size={13} /> Download CSV
+            </button>
+            <button onClick={() => onPrint(po)} className="flex items-center gap-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-emerald-400 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors border border-zinc-700">
+              <Printer size={13} /> Cetak PDF
+            </button>
+            <button onClick={onClose} className="bg-zinc-700 hover:bg-zinc-600 text-zinc-300 rounded-lg px-4 py-1.5 text-xs font-medium transition-colors">Tutup</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function PrintPOModal({ po, onClose }: { po: any; onClose: () => void }) {
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+      <style>{`
+        @media print {
+          body * { visibility: hidden; }
+          #printable-po, #printable-po * { visibility: visible; }
+          #printable-po { 
+            position: absolute; left: 0; top: 0; width: 100%; 
+            background: white !important; color: black !important; 
+            padding: 30px; font-family: sans-serif;
+          }
+          .no-print { display: none !important; }
+        }
+      `}</style>
+      
+      <div className="bg-white rounded-xl w-full max-w-3xl max-h-[90vh] flex flex-col shadow-2xl overflow-hidden relative">
+        <div className="flex items-center justify-between px-6 py-4 border-b bg-zinc-50 border-zinc-200 no-print">
+          <h2 className="text-base font-bold text-zinc-800">Print Purchase Order</h2>
+          <div className="flex gap-2">
+            <button onClick={() => window.print()} className="flex items-center gap-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded px-4 py-1.5 text-sm font-medium transition-colors">
+              <Printer size={14} /> Print
+            </button>
+            <button onClick={onClose} className="p-1.5 rounded bg-zinc-200 hover:bg-zinc-300 text-zinc-600 transition-colors">
+              <span className="sr-only">Tutup</span>✕
+            </button>
+          </div>
+        </div>
+        
+        <div className="flex-1 overflow-auto p-8 bg-white text-zinc-900" id="printable-po">
+          <h1 className="text-2xl font-bold text-center mb-8 uppercase tracking-widest text-black">Purchase Order</h1>
+          
+          <div className="flex justify-between mb-8">
+            <div className="space-y-1">
+              <p className="text-sm"><span className="font-bold">No. PO:</span> {po.poNumber}</p>
+              <p className="text-sm"><span className="font-bold">Tanggal PO:</span> {formatDate(po.poDate)}</p>
+              <p className="text-sm"><span className="font-bold">Ekspektasi Kedatangan:</span> {po.expectedDate ? formatDate(po.expectedDate) : '-'}</p>
+            </div>
+            <div className="space-y-1 text-right">
+              <p className="text-sm font-bold">Kepada Vendor:</p>
+              <p className="text-sm">{po.vendorName}</p>
+              {po.vendor && <p className="text-sm">{po.vendor.kontak || '-'}</p>}
+            </div>
+          </div>
+
+          <table className="w-full mb-8 border-collapse border border-zinc-800">
+            <thead>
+              <tr className="bg-zinc-100 uppercase p-2 border-b border-zinc-800">
+                <th className="text-left py-2 px-3 text-xs font-bold w-12 border-r border-zinc-800">No</th>
+                <th className="text-left py-2 px-3 text-xs font-bold w-32 border-r border-zinc-800">SKU</th>
+                <th className="text-left py-2 px-3 text-xs font-bold border-r border-zinc-800">Nama Produk</th>
+                <th className="text-center py-2 px-3 text-xs font-bold w-24">Qty Order</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(po.items || []).map((item: any, idx: number) => (
+                <tr key={item.id} className="border-b border-zinc-300">
+                  <td className="py-2 px-3 text-sm border-r border-zinc-300">{idx + 1}</td>
+                  <td className="py-2 px-3 text-sm font-mono border-r border-zinc-300">{item.sku}</td>
+                  <td className="py-2 px-3 text-sm border-r border-zinc-300">{item.productName}</td>
+                  <td className="py-2 px-3 text-sm text-center font-bold">{item.qtyOrder}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+
+          <div className="mb-12">
+            <p className="text-sm font-bold mb-2">Catatan:</p>
+            <div className="border border-zinc-300 rounded p-4 text-sm min-h-[60px]">
+              {po.note || '-'}
+            </div>
+          </div>
+
+          <div className="flex justify-between px-16 mt-16">
+            <div className="text-center">
+              <p className="text-sm mb-20 font-bold">Vendor</p>
+              <div className="w-32 border-t border-black mx-auto"></div>
+            </div>
+            <div className="text-center">
+              <p className="text-sm mb-20 font-bold">Purchasing</p>
+              <div className="w-32 border-t border-black mx-auto"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function PurchaseOrdersPage() {
   const [search, setSearch] = useState('')
   const [status, setStatus] = useState('')
   const [page, setPage] = useState(1)
   const [showCreate, setShowCreate] = useState(false)
+  const [printPO, setPrintPO] = useState<any>(null)
+  const [detailPO, setDetailPO] = useState<any>(null)
   const limit = 20
 
   const { data, isLoading } = useQuery({
@@ -146,8 +341,37 @@ export default function PurchaseOrdersPage() {
   const total = data?.total ?? 0
   const totalPages = Math.ceil(total / limit)
 
+  const handlePrint = (po: any) => {
+    setPrintPO(po)
+  }
+
+  const handleDownload = (po: any) => {
+    // Generate detailed item breakdown per PO as requested
+    const rows = (po.items || []).map((item: any) => ({
+      'Kode PO': po.poNumber,
+      'SKU': item.sku,
+      'Nama Artikel': item.productName,
+      'Qty Order': item.qtyOrder,
+      'Qty Receive': item.qtyReceived || 0,
+      'HPP': item.unitPrice,
+      'Subtotal': item.qtyOrder * item.unitPrice
+    }))
+    downloadCSV(`PO-${po.poNumber}.csv`, rows)
+  }
+
   return (
     <AppLayout>
+      {detailPO && (
+        <DetailPOModal
+          po={detailPO}
+          onClose={() => setDetailPO(null)}
+          onDownload={(po) => { handleDownload(po) }}
+          onPrint={(po) => { setDetailPO(null); setPrintPO(po) }}
+        />
+      )}
+      {printPO && (
+        <PrintPOModal po={printPO} onClose={() => setPrintPO(null)} />
+      )}
       {showCreate && vendors && products && (
         <CreatePOModal vendors={vendors} products={products} onClose={() => setShowCreate(false)} />
       )}
@@ -184,14 +408,15 @@ export default function PurchaseOrdersPage() {
                 <th className="w-28 text-right">Total</th>
                 <th className="w-28 text-right">Terbayar</th>
                 <th className="w-24">Status</th>
-                <th className="w-24">Bayar</th>
+                <th className="w-20 text-center">Diterima</th>
+                <th className="w-16 text-center">Aksi</th>
               </tr>
             </thead>
             <tbody>
               {isLoading ? Array.from({length:6}).map((_,i)=>(
-                <tr key={i}>{Array.from({length:8}).map((_,j)=><td key={j}><div className="h-4 bg-zinc-800 rounded animate-pulse"/></td>)}</tr>
+                <tr key={i}>{Array.from({length:9}).map((_,j)=><td key={j}><div className="h-4 bg-zinc-800 rounded animate-pulse"/></td>)}</tr>
               )) : pos.length === 0 ? (
-                <tr><td colSpan={8} className="text-center py-10 text-zinc-600">Belum ada Purchase Order</td></tr>
+                <tr><td colSpan={9} className="text-center py-10 text-zinc-600">Belum ada Purchase Order</td></tr>
               ) : pos.map((po: any) => (
                 <tr key={po.id}>
                   <td><span className="font-mono text-xs text-zinc-300">{po.poNumber}</span></td>
@@ -204,7 +429,20 @@ export default function PurchaseOrdersPage() {
                     <span className={PO_STATUS_COLOR[po.status] || 'badge-muted'}>{po.status}</span>
                     <span className={`${PAY_STATUS_COLOR[po.paymentStatus] || 'badge-muted'} ml-1 text-[10px]`}>{po.paymentStatus}</span>
                   </td>
-                  <td><span className="text-[10px] text-zinc-600">{po.totalQtyReceived}/{po.totalQtyOrder}</span></td>
+                  <td className="text-center"><span className="text-[10px] text-zinc-400 font-bold">{po.totalQtyReceived}/{po.totalQtyOrder}</span></td>
+                  <td>
+                    <div className="flex items-center justify-center gap-1">
+                      <button onClick={() => setDetailPO(po)} className="p-1.5 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-white transition-colors" title="Preview Detail">
+                        <Eye size={13} />
+                      </button>
+                      <button onClick={() => handlePrint(po)} className="p-1.5 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-emerald-400 transition-colors" title="Cetak PDF">
+                        <Printer size={13} />
+                      </button>
+                      <button onClick={() => handleDownload(po)} className="p-1.5 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-blue-400 transition-colors" title="Download CSV">
+                        <FileDown size={13} />
+                      </button>
+                    </div>
+                  </td>
                 </tr>
               ))}
             </tbody>

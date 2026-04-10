@@ -68,3 +68,53 @@ export async function POST(request: NextRequest) {
     productName: matchedOrder.productName,
   })
 }
+
+// GET /api/scan/order?airwaybill=XXX
+export async function GET(request: NextRequest) {
+  const session = await getSession()
+  if (!session.isLoggedIn) return apiError('Unauthorized', 401)
+
+  const { searchParams } = new URL(request.url)
+  const airwaybill = searchParams.get('airwaybill')
+  if (!airwaybill) return apiError('Nomor resi wajib diisi')
+
+  const matchedOrder = await prisma.order.findFirst({
+    where: { airwaybill: airwaybill.trim() },
+    select: { orderNo: true, receiverName: true, productName: true, id: true }
+  })
+
+  if (!matchedOrder) {
+    return apiSuccess(null)
+  }
+
+  const scanLog = await prisma.orderScanLog.findFirst({
+    where: { orderNo: matchedOrder.orderNo },
+    orderBy: { createdAt: 'desc' }
+  })
+
+  if (scanLog) {
+    // try to get username if scannedBy is ID, but we might just return the raw ID if we don't join User
+    // However let's fetch user just in case
+    let operator = scanLog.scannedBy
+    if (operator) {
+      const user = await prisma.appUser.findFirst({ where: { id: operator } })
+      if (user) operator = user.username
+    }
+
+    return apiSuccess({
+      found: true,
+      scannedAt: formatInTimeZone(scanLog.scannedAt, 'Asia/Jakarta', 'yyyy-MM-dd HH:mm:ss') + ' WIB',
+      scannedBy: operator || 'Unknown',
+      orderNo: matchedOrder.orderNo,
+      receiverName: matchedOrder.receiverName,
+      productName: matchedOrder.productName
+    })
+  }
+
+  return apiSuccess({
+    found: false,
+    orderNo: matchedOrder.orderNo,
+    receiverName: matchedOrder.receiverName,
+    productName: matchedOrder.productName
+  })
+}

@@ -1,4 +1,4 @@
-# ZANEVA Business Operation System
+# ELYASR Business Operation System
 
 Sistem manajemen operasional bisnis e-commerce multi-platform.
 
@@ -14,8 +14,8 @@ Sistem manajemen operasional bisnis e-commerce multi-platform.
 
 ### 1. Clone & Install
 ```bash
-git clone https://github.com/YOUR_USERNAME/zaneva-ops.git
-cd zaneva-ops
+git clone https://github.com/YOUR_USERNAME/elyasr-ops.git
+cd elyasr-ops
 npm install
 ```
 
@@ -61,22 +61,22 @@ npm run dev
 git init
 git add .
 git commit -m "initial commit"
-git remote add origin https://github.com/YOUR_USERNAME/zaneva-ops.git
+git remote add origin https://github.com/YOUR_USERNAME/elyasr-ops.git
 git push -u origin main
 ```
 
 ### Step 3 — Buat App di EasyPanel
 1. **New Service** → **App** → pilih **GitHub**
-2. Pilih repo `zaneva-ops`
+2. Pilih repo `elyasr-ops`
 3. **Build Method**: Dockerfile
 4. Set environment variables:
 
 | Key | Value |
 |-----|-------|
-| `DATABASE_URL` | `postgresql://user:pass@db-host:5432/zaneva_ops` |
+| `DATABASE_URL` | `postgresql://user:pass@db-host:5432/elyasr_ops` |
 | `SESSION_SECRET` | Random 32+ karakter |
 | `NODE_ENV` | `production` |
-| `NEXT_PUBLIC_APP_NAME` | `ZANEVA Business Operation` |
+| `NEXT_PUBLIC_APP_NAME` | `ELYASR Business Operation` |
 
 5. **Port**: 3000
 6. Deploy!
@@ -137,7 +137,7 @@ npm run db:studio
 ## 📁 Struktur Project
 
 ```
-zaneva-ops/
+elyasr-ops/
 ├── prisma/
 │   ├── schema.prisma      # 24 entities
 │   └── seed.ts            # Initial data

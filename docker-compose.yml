@@ -3,33 +3,33 @@ version: '3.8'
 services:
   db:
     image: postgres:16-alpine
-    container_name: zaneva_db
+    container_name: elyasr_db
     restart: unless-stopped
     environment:
-      POSTGRES_USER: zaneva_user
-      POSTGRES_PASSWORD: zaneva_pass_dev
-      POSTGRES_DB: zaneva_ops
+      POSTGRES_USER: elyasr_user
+      POSTGRES_PASSWORD: elyasr_pass_dev
+      POSTGRES_DB: elyasr_ops
     ports:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U zaneva_user -d zaneva_ops"]
+      test: ["CMD-SHELL", "pg_isready -U elyasr_user -d elyasr_ops"]
       interval: 10s
       timeout: 5s
       retries: 5
 
   app:
     build: .
-    container_name: zaneva_app
+    container_name: elyasr_app
     restart: unless-stopped
     ports:
       - "3000:3000"
     environment:
-      DATABASE_URL: postgresql://zaneva_user:zaneva_pass_dev@db:5432/zaneva_ops
+      DATABASE_URL: postgresql://elyasr_user:elyasr_pass_dev@db:5432/elyasr_ops
       SESSION_SECRET: dev-secret-change-in-production-32chars
       NODE_ENV: production
-      NEXT_PUBLIC_APP_NAME: ZANEVA Business Operation
+      NEXT_PUBLIC_APP_NAME: ELYASR Business Operation
     depends_on:
       db:
         condition: service_healthy

@@ -4,7 +4,66 @@ import { AppLayout } from '@/components/layout/app-layout'
 import { useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
 import { formatDate, downloadCSV } from '@/lib/utils'
-import { Package, Search, Download, AlertTriangle, RefreshCw, ChevronDown } from 'lucide-react'
+import { Package, Search, Download, AlertTriangle, RefreshCw, ChevronDown, History, X } from 'lucide-react'
+
+function LedgerModal({ sku, productName, onClose }: { sku: string; productName: string; onClose: () => void }) {
+  const { data: ledger, isLoading } = useQuery({
+    queryKey: ['ledger', sku],
+    queryFn: async () => fetch(`/api/inventory/ledger?sku=${sku}`).then(res => res.json()).then(d => d.data?.ledger ?? [])
+  })
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+      <div className="bg-zinc-900 border border-zinc-800 rounded-2xl w-full max-w-2xl max-h-[80vh] flex flex-col">
+        <div className="p-4 border-b border-zinc-800 flex items-center justify-between">
+          <div>
+            <h2 className="text-base font-bold text-white">Riwayat Inventori (Ledger)</h2>
+            <p className="text-xs text-zinc-400 mt-1">{sku} — {productName}</p>
+          </div>
+          <button onClick={onClose} className="p-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-400 rounded-lg transition-colors">
+            <X size={16} />
+          </button>
+        </div>
+        <div className="flex-1 overflow-auto p-4">
+          <table className="data-table w-full">
+            <thead>
+              <tr>
+                <th className="w-40">Tanggal</th>
+                <th className="w-20 text-center">In/Out</th>
+                <th className="w-24">Alasan</th>
+                <th className="w-20 text-center">Qty</th>
+                <th>Catatan</th>
+                <th className="w-24">Oleh</th>
+              </tr>
+            </thead>
+            <tbody>
+              {isLoading ? (
+                <tr><td colSpan={6} className="text-center py-8 text-zinc-500">Memuat riwayat...</td></tr>
+              ) : !ledger || ledger.length === 0 ? (
+                <tr><td colSpan={6} className="text-center py-8 text-zinc-500">Belum ada riwayat tercatat</td></tr>
+              ) : (
+                ledger.map((l: any) => (
+                  <tr key={l.id}>
+                    <td className="text-xs text-zinc-400">{formatDate(l.trxDate, 'datetime')}</td>
+                    <td className="text-center">
+                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${l.direction === 'IN' ? 'bg-emerald-900/40 text-emerald-400' : 'bg-red-900/40 text-red-400'}`}>
+                        {l.direction}
+                      </span>
+                    </td>
+                    <td><span className="text-[10px] bg-zinc-800 text-zinc-400 px-2 py-1 rounded">{l.reason}</span></td>
+                    <td className="text-center font-bold text-sm text-zinc-200">{l.qty}</td>
+                    <td className="text-xs text-zinc-500 truncate max-w-[150px]">{l.note || '-'}</td>
+                    <td className="text-xs text-zinc-500">{l.createdBy || '-'}</td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  )
+}
 
 function StockBadge({ status }: { status: string }) {
   if (status === 'EMPTY') return <span className="badge-danger">Habis</span>
@@ -16,6 +75,7 @@ export default function InventoryPage() {
   const [search, setSearch] = useState('')
   const [filter, setFilter] = useState<'all' | 'low' | 'empty'>('all')
   const [categoryFilter, setCategoryFilter] = useState('')
+  const [selectedLedgerSku, setSelectedLedgerSku] = useState<{sku: string, name: string} | null>(null)
 
   const { data, isLoading, refetch } = useQuery({
     queryKey: ['inventory', search, filter],
@@ -70,6 +130,14 @@ export default function InventoryPage() {
           </button>
         </div>
       </div>
+
+      {selectedLedgerSku && (
+        <LedgerModal 
+          sku={selectedLedgerSku.sku} 
+          productName={selectedLedgerSku.name} 
+          onClose={() => setSelectedLedgerSku(null)} 
+        />
+      )}
 
       {/* Summary Cards */}
       <div className="grid grid-cols-3 gap-3 mb-6">
@@ -126,6 +194,7 @@ export default function InventoryPage() {
                 <th className="w-20 text-right">HPP</th>
                 <th className="w-24">Status</th>
                 <th className="w-28">Last Opname</th>
+                <th className="w-16">Aksi</th>
               </tr>
             </thead>
             <tbody>
@@ -163,6 +232,15 @@ export default function InventoryPage() {
                     </td>
                     <td><StockBadge status={p.stockStatus} /></td>
                     <td className="text-[10px] text-zinc-600">{p.lastOpnameDate ? formatDate(p.lastOpnameDate) : '—'}</td>
+                    <td>
+                      <button 
+                        onClick={() => setSelectedLedgerSku({ sku: p.sku, name: p.productName })}
+                        className="p-1.5 rounded hover:bg-zinc-800 text-zinc-500 hover:text-emerald-400 transition-colors"
+                        title="Lihat Riwayat Ledger"
+                      >
+                        <History size={14} />
+                      </button>
+                    </td>
                   </tr>
                 ))
               )}

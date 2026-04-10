@@ -5,7 +5,8 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 import { downloadCSV } from '@/lib/utils'
 import { useToast } from '@/components/ui/toaster'
-import { Database, Plus, Download, Search, Edit2, ChevronLeft, ChevronRight } from 'lucide-react'
+import { Database, Plus, Download, Upload, Search, Edit2, ChevronLeft, ChevronRight, FileDown } from 'lucide-react'
+import Papa from 'papaparse'
 
 function ProductModal({ product, categories, onClose }: { product?: any; categories: any[]; onClose: () => void }) {
   const qc = useQueryClient()
@@ -102,11 +103,117 @@ function ProductModal({ product, categories, onClose }: { product?: any; categor
   )
 }
 
+function ImportModal({ onClose }: { onClose: () => void }) {
+  const qc = useQueryClient()
+  const { toast } = useToast()
+  const [loading, setLoading] = useState(false)
+
+  const downloadTemplate = () => {
+    downloadCSV('template-import-produk.csv', [{
+      sku: 'PROD-001',
+      productName: 'Contoh Produk A',
+      categoryName: 'Aksesoris',
+      unit: 'pcs',
+      hpp: 10000,
+      rop: 10,
+      leadTimeDays: 3,
+      stokAwal: 50
+    }])
+  }
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+
+    setLoading(true)
+    Papa.parse(file, {
+      header: true,
+      skipEmptyLines: true,
+      complete: async (results) => {
+        try {
+          const res = await fetch('/api/products/import', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ products: results.data }),
+          })
+          const json = await res.json()
+          if (!res.ok) {
+            toast({ title: json.error || 'Gagal import produk', type: 'error' })
+            if (json.errors) {
+              alert('Detail Error:\n' + json.errors.join('\n'))
+            }
+          } else {
+            toast({ title: json.data?.message || 'Produk berhasil diimport', type: 'success' })
+            qc.invalidateQueries({ queryKey: ['products'] })
+            qc.invalidateQueries({ queryKey: ['products-all'] })
+            onClose()
+          }
+        } catch (err: any) {
+          toast({ title: err.message || 'Gagal tersambung ke server', type: 'error' })
+        } finally {
+          setLoading(false)
+        }
+      },
+      error: (error) => {
+        toast({ title: `Gagal membaca file: ${error.message}`, type: 'error' })
+        setLoading(false)
+      }
+    })
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+      <div className="bg-zinc-900 border border-zinc-800 rounded-2xl w-full max-w-md p-6">
+        <h2 className="text-base font-semibold text-white mb-5">Import Data Produk Baru</h2>
+        
+        <div className="space-y-4">
+          <div className="bg-zinc-800/50 border border-zinc-700/50 rounded-xl p-4">
+            <h3 className="text-sm font-medium text-white mb-2 flex items-center gap-2">
+              <FileDown size={14} className="text-emerald-400" />
+              1. Download Template CSV
+            </h3>
+            <p className="text-xs text-zinc-400 mb-3 leading-relaxed">
+              Silakan unduh template CSV berikut dan isi data produk Anda ke dalamnya. Pastikan judul kolom (header) pada baris pertama tidak diubah.
+            </p>
+            <button onClick={downloadTemplate} className="w-full flex items-center justify-center gap-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 border border-zinc-700 rounded-lg py-2 text-sm transition-colors">
+              <Download size={14} /> Unduh Template CSV
+            </button>
+          </div>
+
+          <div className="bg-zinc-800/50 border border-zinc-700/50 rounded-xl p-4">
+            <h3 className="text-sm font-medium text-white mb-2 flex items-center gap-2">
+              <Upload size={14} className="text-blue-400" />
+              2. Upload File CSV
+            </h3>
+            <p className="text-xs text-zinc-400 mb-3 leading-relaxed">
+              Setelah template diisi, simpan sebagai CSV dan unggah di sini. (Data sku tidak boleh ada spasi dan tidak boleh ganda).
+            </p>
+            
+            <label className={`flex flex-col items-center justify-center w-full h-24 border-2 border-dashed ${loading ? 'border-zinc-700 bg-zinc-800/30 cursor-not-allowed' : 'border-emerald-700/50 hover:bg-emerald-900/10 hover:border-emerald-500 cursor-pointer'} rounded-xl transition-all`}>
+              <div className="flex flex-col items-center justify-center pt-5 pb-6">
+                <Upload size={20} className={loading ? "text-zinc-600 mb-2" : "text-emerald-500 mb-2"} />
+                <p className="text-xs text-zinc-400 font-medium">{loading ? 'Memproses import...' : 'Klik untuk memilih file CSV'}</p>
+              </div>
+              <input type="file" className="hidden" accept=".csv" disabled={loading} onChange={handleFileUpload} />
+            </label>
+          </div>
+        </div>
+
+        <div className="flex gap-2 pt-4 mt-2">
+          <button type="button" onClick={onClose} disabled={loading} className="w-full bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-lg py-2.5 text-sm font-medium transition-colors">
+            Tutup
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function MasterProductsPage() {
   const { toast } = useToast()
   const [search, setSearch] = useState('')
   const [page, setPage] = useState(1)
-  const [modal, setModal] = useState<'add' | 'edit' | null>(null)
+  const [modal, setModal] = useState<'add' | 'edit' | 'import' | null>(null)
   const [selected, setSelected] = useState<any>(null)
   const limit = 50
 
@@ -146,7 +253,11 @@ export default function MasterProductsPage() {
 
   return (
     <AppLayout>
-      {modal && (
+      {modal === 'import' && (
+        <ImportModal onClose={() => setModal(null)} />
+      )}
+
+      {(modal === 'add' || modal === 'edit') && (
         <ProductModal
           product={modal === 'edit' ? selected : undefined}
           categories={categories ?? []}
@@ -162,6 +273,9 @@ export default function MasterProductsPage() {
         <div className="flex gap-2">
           <button onClick={handleExport} className="flex items-center gap-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-lg px-3 py-2 text-sm transition-colors border border-zinc-700">
             <Download size={14} /> Export
+          </button>
+          <button onClick={() => setModal('import')} className="flex items-center gap-2 bg-zinc-800 hover:bg-zinc-700 text-blue-400 rounded-lg px-3 py-2 text-sm transition-colors border border-zinc-700 font-medium">
+            <Upload size={14} /> Import CSV
           </button>
           <button onClick={() => setModal('add')} className="flex items-center gap-2 bg-emerald-700 hover:bg-emerald-600 text-white rounded-lg px-3 py-2 text-sm font-medium transition-colors">
             <Plus size={14} /> Tambah Produk

@@ -2,7 +2,8 @@
 
 import { AppLayout } from '@/components/layout/app-layout'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { useState } from 'react'
+import { useState, useEffect, Suspense } from 'react'
+import { useSearchParams } from 'next/navigation'
 import { formatDate, downloadCSV } from '@/lib/utils'
 import { useToast } from '@/components/ui/toaster'
 import { Shield, Users, FileText, Download, Plus, Edit2, Loader2 } from 'lucide-react'
@@ -95,7 +96,7 @@ function UserModal({ user, onClose }: { user?: any; onClose: () => void }) {
 }
 
 function UsersTab() {
-  const [modal, setModal] = useState<any>(null)
+  const [modal, setModal] = useState<any>(false)
   const { data: users, isLoading } = useQuery({
     queryKey: ['users'],
     queryFn: () => fetch('/api/users').then(r => r.json()).then(d => d.data ?? []),
@@ -103,11 +104,11 @@ function UsersTab() {
 
   return (
     <div>
-      {modal !== undefined && modal !== false && (
-        <UserModal user={modal || undefined} onClose={() => setModal(false)} />
+      {modal && (
+        <UserModal user={typeof modal === 'object' ? modal : undefined} onClose={() => setModal(false)} />
       )}
       <div className="flex justify-end mb-4">
-        <button onClick={() => setModal(null)} className="flex items-center gap-2 bg-emerald-700 hover:bg-emerald-600 text-white rounded-lg px-3 py-2 text-sm font-medium transition-colors">
+        <button onClick={() => setModal(true)} className="flex items-center gap-2 bg-emerald-700 hover:bg-emerald-600 text-white rounded-lg px-3 py-2 text-sm font-medium transition-colors">
           <Plus size={14}/> Tambah User
         </button>
       </div>
@@ -215,7 +216,7 @@ function BackupTab() {
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
-      a.download = `zaneva-backup-${key}-${new Date().toISOString().slice(0, 10)}.json`
+      a.download = `elyasr-backup-${key}-${new Date().toISOString().slice(0, 10)}.json`
       a.click()
       URL.revokeObjectURL(url)
       toast({ title: `Backup ${key} berhasil didownload`, type: 'success' })
@@ -243,8 +244,16 @@ function BackupTab() {
   )
 }
 
-export default function OwnerRoomPage() {
-  const [activeTab, setActiveTab] = useState('Users')
+function OwnerRoomContent() {
+  const searchParams = useSearchParams()
+  const tabParam = searchParams.get('tab')
+  const [activeTab, setActiveTab] = useState(tabParam || 'Users')
+
+  useEffect(() => {
+    if (tabParam && TABS.includes(tabParam)) {
+      setActiveTab(tabParam)
+    }
+  }, [tabParam])
 
   return (
     <AppLayout>
@@ -265,5 +274,13 @@ export default function OwnerRoomPage() {
       {activeTab === 'Audit Log' && <AuditTab />}
       {activeTab === 'Backup Data' && <BackupTab />}
     </AppLayout>
+  )
+}
+
+export default function OwnerRoomPage() {
+  return (
+    <Suspense fallback={<div className="p-8 text-center text-zinc-500">Memuat Owner Room...</div>}>
+      <OwnerRoomContent />
+    </Suspense>
   )
 }

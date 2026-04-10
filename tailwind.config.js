@@ -50,8 +50,8 @@ module.exports = {
           DEFAULT: "hsl(var(--card))",
           foreground: "hsl(var(--card-foreground))",
         },
-        // ZANEVA brand colors
-        zaneva: {
+        // ELYASR brand colors
+        elyasr: {
           navy: "#0a1628",
           gold: "#c9a84c",
           "gold-light": "#e8c97a",

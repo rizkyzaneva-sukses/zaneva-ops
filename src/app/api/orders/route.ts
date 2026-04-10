@@ -120,7 +120,26 @@ export async function POST(request: NextRequest) {
   const skipped = parsed.length - toInsert.length
 
   if (toInsert.length === 0) {
+    if (body.preview) {
+      return apiSuccess({
+        platform,
+        totalParsed: parsed.length,
+        skipped,
+        toInsertCount: 0,
+        previewItems: [],
+      })
+    }
     return apiSuccess({ inserted: 0, skipped, platform, message: 'Semua data sudah ada.' })
+  }
+
+  if (body.preview) {
+    return apiSuccess({
+      platform,
+      totalParsed: parsed.length,
+      skipped,
+      toInsertCount: toInsert.length,
+      previewItems: toInsert.slice(0, 5), // Preview first 5 items
+    })
   }
 
   // Chunked insert — tidak ada batas baris, 500 per chunk
@@ -158,6 +177,26 @@ export async function POST(request: NextRequest) {
     platform,
     message: `${inserted} order ${platform} berhasil diimport${skipped > 0 ? `, ${skipped} dilewati (duplikat)` : ''}.`,
   })
+}
+
+// DELETE /api/orders — Bulk delete by ids
+export async function DELETE(request: NextRequest) {
+  const session = await getSession()
+  if (!session.isLoggedIn) return apiError('Unauthorized', 401)
+  if (!['OWNER', 'FINANCE', 'STAFF'].includes(session.userRole)) return apiError('Forbidden', 403)
+
+  const body = await request.json()
+  const { ids } = body
+
+  if (!Array.isArray(ids) || ids.length === 0) {
+    return apiError('Tidak ada ID yang dikirim.')
+  }
+
+  const { count } = await prisma.order.deleteMany({
+    where: { id: { in: ids } },
+  })
+
+  return apiSuccess({ message: `${count} pesanan berhasil dihapus!` })
 }
 
 // ── Chunked insert helper (tidak ada batas baris) ─────

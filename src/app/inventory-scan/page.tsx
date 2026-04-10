@@ -7,13 +7,12 @@ import { useToast } from '@/components/ui/toaster'
 import { ScanLine, Plus, Minus, RotateCcw, Package, CheckCircle, Trash2, Upload } from 'lucide-react'
 import Papa from 'papaparse'
 
-type TabKey = 'masuk' | 'keluar' | 'retur' | 'pesanan'
+type TabKey = 'masuk' | 'keluar' | 'retur'
 
 const TABS: { key: TabKey; label: string; direction: 'IN' | 'OUT'; reason: string }[] = [
   { key: 'masuk',   label: 'Scan Masuk',   direction: 'IN',  reason: 'PURCHASE' },
   { key: 'keluar',  label: 'Scan Keluar',  direction: 'OUT', reason: 'SALES' },
   { key: 'retur',   label: 'Scan Retur',   direction: 'IN',  reason: 'RETURN_SALES' },
-  { key: 'pesanan', label: 'Scan Pesanan', direction: 'OUT', reason: 'SALES' },
 ]
 
 interface ScanItem { sku: string; productName: string; qty: number }

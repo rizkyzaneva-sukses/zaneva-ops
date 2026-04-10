@@ -5,7 +5,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 import { formatRupiah, formatDate, downloadCSV } from '@/lib/utils'
 import { useToast } from '@/components/ui/toaster'
-import { Wallet, Plus, Download, Filter, ChevronLeft, ChevronRight } from 'lucide-react'
+import { Wallet, Plus, Download, Filter, ChevronLeft, ChevronRight, Settings, Edit2, Trash } from 'lucide-react'
 
 const TRX_TYPE_COLORS: Record<string, string> = {
   PAYOUT: 'badge-success',
@@ -29,6 +29,16 @@ function AddTransactionModal({ onClose, wallets }: { onClose: () => void; wallet
   const [loading, setLoading] = useState(false)
 
   const set = (k: string, v: string) => setForm(p => ({ ...p, [k]: v }))
+
+  // Ambil data kategori dari database berdasarkan tipe transaksi (optional context)
+  const { data: categories } = useQuery({
+    queryKey: ['master-categories', form.trxType],
+    queryFn: async () => {
+      if (form.trxType === 'TRANSFER') return []
+      const res = await fetch(`/api/master-categories?type=${form.trxType}`)
+      return res.json().then(d => d.data ?? [])
+    },
+  })
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -57,35 +67,72 @@ function AddTransactionModal({ onClose, wallets }: { onClose: () => void; wallet
       <div className="bg-zinc-900 border border-zinc-800 rounded-2xl w-full max-w-md p-6">
         <h2 className="text-base font-semibold text-white mb-5">Tambah Transaksi</h2>
         <form onSubmit={handleSubmit} className="space-y-3">
-          {[
-            { label: 'Wallet', key: 'walletId', type: 'select', options: wallets.map(w => ({ value: w.id, label: w.name })) },
-            { label: 'Tanggal', key: 'trxDate', type: 'date' },
-            { label: 'Tipe', key: 'trxType', type: 'select', options: ['PAYOUT','OTHER_INCOME','EXPENSE','TRANSFER'].map(v => ({ value: v, label: v })) },
-            { label: 'Kategori', key: 'category', type: 'text', placeholder: 'Nama kategori' },
-            { label: 'Jumlah (Rp)', key: 'amount', type: 'number', placeholder: '0' },
-            { label: 'Catatan', key: 'note', type: 'text', placeholder: 'Opsional' },
-          ].map(field => (
-            <div key={field.key}>
-              <label className="block text-xs text-zinc-500 mb-1">{field.label}</label>
-              {field.type === 'select' ? (
-                <select
-                  value={(form as any)[field.key]}
-                  onChange={e => set(field.key, e.target.value)}
-                  className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-200 focus:outline-none"
-                >
-                  {field.options?.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-                </select>
-              ) : (
-                <input
-                  type={field.type}
-                  value={(form as any)[field.key]}
-                  onChange={e => set(field.key, e.target.value)}
-                  placeholder={field.placeholder}
-                  className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-200 placeholder-zinc-600 focus:outline-none"
-                />
-              )}
+          <div>
+            <label className="block text-xs text-zinc-500 mb-1">Wallet</label>
+            <select
+              value={form.walletId}
+              onChange={e => set('walletId', e.target.value)}
+              className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-200 focus:outline-none"
+            >
+              {wallets.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs text-zinc-500 mb-1">Tanggal</label>
+            <input
+              type="date"
+              value={form.trxDate}
+              onChange={e => set('trxDate', e.target.value)}
+              className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-200 focus:outline-none [&::-webkit-calendar-picker-indicator]:invert-[0.6]"
+            />
+          </div>
+          <div>
+            <label className="block text-xs text-zinc-500 mb-1">Tipe</label>
+            <select
+              value={form.trxType}
+              onChange={e => set('trxType', e.target.value)}
+              className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-200 focus:outline-none"
+            >
+              {['PAYOUT','OTHER_INCOME','EXPENSE','TRANSFER'].map(v => <option key={v} value={v}>{v}</option>)}
+            </select>
+          </div>
+          {form.trxType !== 'TRANSFER' && (
+            <div>
+              <label className="block text-xs text-zinc-500 mb-1">Kategori</label>
+              <input
+                list="category-options"
+                value={form.category}
+                onChange={e => set('category', e.target.value)}
+                placeholder="Pilih atau ketik kategori..."
+                className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-200 placeholder-zinc-600 focus:outline-none focus:ring-2 focus:ring-emerald-500/50"
+              />
+              <datalist id="category-options">
+                {(categories ?? []).map((c: any) => (
+                  <option key={c.id} value={c.name} />
+                ))}
+              </datalist>
             </div>
-          ))}
+          )}
+          <div>
+            <label className="block text-xs text-zinc-500 mb-1">Jumlah (Rp)</label>
+            <input
+              type="number"
+              value={form.amount}
+              onChange={e => set('amount', e.target.value)}
+              placeholder="0"
+              className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-200 placeholder-zinc-600 focus:outline-none"
+            />
+          </div>
+          <div>
+            <label className="block text-xs text-zinc-500 mb-1">Catatan</label>
+            <input
+              type="text"
+              value={form.note}
+              onChange={e => set('note', e.target.value)}
+              placeholder="Opsional"
+              className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-200 placeholder-zinc-600 focus:outline-none"
+            />
+          </div>
 
           {form.trxType === 'TRANSFER' && (
             <div>
@@ -112,9 +159,105 @@ function AddTransactionModal({ onClose, wallets }: { onClose: () => void; wallet
   )
 }
 
+function ManageWalletsModal({ onClose, wallets }: { onClose: () => void; wallets: any[] }) {
+  const qc = useQueryClient()
+  const { toast } = useToast()
+  const [newWalletName, setNewWalletName] = useState('')
+  const [loading, setLoading] = useState(false)
+
+  const handleCreate = async () => {
+    if (!newWalletName) return
+    setLoading(true)
+    try {
+      const res = await fetch('/api/wallet', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: newWalletName }),
+      })
+      if (!res.ok) throw new Error((await res.json()).error)
+      setNewWalletName('')
+      qc.invalidateQueries({ queryKey: ['wallets'] })
+      toast({ title: 'Wallet berhasil dibuat', type: 'success' })
+    } catch (err: any) {
+      toast({ title: err.message || 'Gagal', type: 'error' })
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const toggleActive = async (id: string, currentStatus: boolean) => {
+    const cfm = confirm(`Yakin ingin ${currentStatus ? 'menonaktifkan' : 'mengaktifkan'} wallet ini?`)
+    if (!cfm) return
+    setLoading(true)
+    try {
+      const res = await fetch(`/api/wallet/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ isActive: !currentStatus }),
+      })
+      if (!res.ok) throw new Error((await res.json()).error)
+      qc.invalidateQueries({ queryKey: ['wallets'] })
+      toast({ title: 'Status wallet diperbarui', type: 'success' })
+    } catch (err: any) {
+      toast({ title: err.message || 'Gagal', type: 'error' })
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+      <div className="bg-zinc-900 border border-zinc-800 rounded-2xl w-full max-w-lg p-6">
+        <div className="flex justify-between items-center mb-5">
+          <h2 className="text-base font-semibold text-white">Kelola Data Wallet</h2>
+        </div>
+        
+        <div className="flex gap-2 mb-4">
+          <input
+            type="text"
+            placeholder="Nama Wallet Baru"
+            value={newWalletName}
+            onChange={e => setNewWalletName(e.target.value)}
+            className="flex-1 bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-200 placeholder-zinc-600 focus:outline-none"
+          />
+          <button onClick={handleCreate} disabled={loading || !newWalletName} className="bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white rounded-lg px-4 py-2 text-sm font-medium transition-colors">
+            Tambah
+          </button>
+        </div>
+
+        <div className="max-h-60 overflow-y-auto space-y-2 pr-1 mb-4">
+          {wallets.map(w => (
+            <div key={w.id} className="flex items-center justify-between bg-zinc-800/50 border border-zinc-700/50 p-3 rounded-lg">
+              <div>
+                <p className="text-sm font-medium text-white">{w.name}</p>
+                <p className="text-xs text-zinc-500">{w.isActive ? 'Aktif' : 'Nonaktif'}</p>
+              </div>
+              <button 
+                onClick={() => toggleActive(w.id, w.isActive)} 
+                disabled={loading}
+                className={`text-xs px-2 py-1 rounded transition-colors ${w.isActive ? 'bg-red-900/30 text-red-400 hover:bg-red-900/50' : 'bg-emerald-900/30 text-emerald-400 hover:bg-emerald-900/50'}`}
+              >
+                {w.isActive ? 'Nonaktifkan' : 'Aktifkan'}
+              </button>
+            </div>
+          ))}
+          {wallets.length === 0 && <p className="text-sm text-zinc-500 text-center py-4">Data kosong.</p>}
+        </div>
+
+        <div className="flex gap-2 pt-2 border-t border-zinc-800">
+          <button type="button" onClick={onClose} className="w-full bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-lg py-2.5 text-sm font-medium transition-colors">
+            Tutup
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function FinancePage() {
   const { toast } = useToast()
   const [showModal, setShowModal] = useState(false)
+  const [showManageWallets, setShowManageWallets] = useState(false)
   const [walletFilter, setWalletFilter] = useState('')
   const [typeFilter, setTypeFilter] = useState('')
   const [page, setPage] = useState(1)
@@ -158,6 +301,7 @@ export default function FinancePage() {
   return (
     <AppLayout>
       {showModal && wallets && <AddTransactionModal onClose={() => setShowModal(false)} wallets={wallets} />}
+      {showManageWallets && wallets && <ManageWalletsModal onClose={() => setShowManageWallets(false)} wallets={wallets} />}
 
       <div className="page-header">
         <h1 className="page-title flex items-center gap-2">
@@ -165,6 +309,9 @@ export default function FinancePage() {
           Keuangan
         </h1>
         <div className="flex gap-2">
+          <button onClick={() => setShowManageWallets(true)} className="flex items-center gap-2 bg-zinc-800 hover:bg-zinc-700 text-blue-400 rounded-lg px-3 py-2 text-sm transition-colors border border-zinc-700 font-medium">
+            <Settings size={14} /> Kelola Wallet
+          </button>
           <button onClick={handleExport} className="flex items-center gap-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-lg px-3 py-2 text-sm transition-colors border border-zinc-700">
             <Download size={14} /> Export
           </button>

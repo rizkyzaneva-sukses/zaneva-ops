@@ -32,6 +32,7 @@ const NAV_ITEMS: NavItem[] = [
     roles: ['OWNER', 'FINANCE', 'STAFF'],
     children: [
       { href: '/inventory', label: 'Stok Overview', icon: Package, roles: ['OWNER', 'FINANCE', 'STAFF'] },
+      { href: '/inventory-ledger', label: 'Inventory Ledger', icon: FileText, roles: ['OWNER', 'FINANCE', 'STAFF'] },
       { href: '/inventory-scan', label: 'Scan Masuk/Keluar', icon: ScanLine, roles: ['OWNER', 'FINANCE', 'STAFF'] },
       { href: '/stock-opname', label: 'Stock Opname', icon: ClipboardCheck, roles: ['OWNER', 'FINANCE'] },
       { href: '/master-products', label: 'Master Produk', icon: Database, roles: ['OWNER', 'FINANCE'] },
@@ -68,12 +69,6 @@ const NAV_ITEMS: NavItem[] = [
     label: 'Owner Room',
     icon: Shield,
     roles: ['OWNER'],
-    children: [
-      { href: '/owner-room', label: 'Overview', icon: Shield, roles: ['OWNER'] },
-      { href: '/user-management', label: 'Kelola User', icon: Users, roles: ['OWNER'] },
-      { href: '/audit-logs', label: 'Audit Log', icon: FileText, roles: ['OWNER'] },
-      { href: '/data-backup', label: 'Backup Data', icon: Download, roles: ['OWNER'] },
-    ],
   },
   { href: '/documentation', label: 'Dokumentasi', icon: BookOpen },
 ]

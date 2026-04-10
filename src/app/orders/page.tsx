@@ -5,13 +5,13 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState, useRef } from 'react'
 import { formatRupiah, formatDate, downloadCSV } from '@/lib/utils'
 import { useToast } from '@/components/ui/toaster'
-import { usePermission } from '@/components/providers'
+import { usePermission, useAuth } from '@/components/providers'
 import Papa from 'papaparse'
 import * as XLSX from 'xlsx'
 import {
   ShoppingCart, Upload, Download, Search,
   RefreshCw, ChevronLeft, ChevronRight, CheckCircle2,
-  Loader2, AlertCircle
+  Loader2, AlertCircle, Trash, X
 } from 'lucide-react'
 
 const STATUS_GROUPS = [
@@ -43,22 +43,38 @@ export default function OrdersPage() {
   const qc = useQueryClient()
   const { toast } = useToast()
   const { canEdit } = usePermission()
+  const { user } = useAuth()
   const fileRef = useRef<HTMLInputElement>(null)
 
   const [search, setSearch] = useState('')
   const [statusGroup, setStatusGroup] = useState('')
   const [platform, setPlatform] = useState('')
+  const [dateFrom, setDateFrom] = useState('')
+  const [dateTo, setDateTo] = useState('')
   const [page, setPage] = useState(1)
   const [importing, setImporting] = useState(false)
   const [importResult, setImportResult] = useState<ImportResult | null>(null)
+  
+  // States untuk Preview & Bulk Delete
+  const [showPreview, setShowPreview] = useState(false)
+  const [previewData, setPreviewData] = useState<any>(null)
+  const [uploadPayload, setUploadPayload] = useState<{ rawRows: any[], headers: string[] } | null>(null)
+  
+  const [selectedIds, setSelectedIds] = useState<string[]>([])
+  const [deleting, setDeleting] = useState(false)
+  const [editingOrder, setEditingOrder] = useState<any>(null)
+  
   const limit = 50
 
   const { data, isLoading, refetch } = useQuery({
-    queryKey: ['orders', search, statusGroup, platform, page],
+    queryKey: ['orders', search, statusGroup, platform, dateFrom, dateTo, page],
     queryFn: async () => {
       const params = new URLSearchParams({
         search, statusGroup, platform, page: String(page), limit: String(limit),
       })
+      if (dateFrom) params.append('dateFrom', dateFrom)
+      if (dateTo) params.append('dateTo', dateTo)
+      
       const res = await fetch(`/api/orders?${params}`)
       return res.json().then(d => d.data)
     },
@@ -112,11 +128,37 @@ export default function OrdersPage() {
         return
       }
 
-      // Kirim ke API
+      // Kirim ke API dengan mode preview
       const res = await fetch('/api/orders', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ rawRows, headers }),
+        body: JSON.stringify({ rawRows, headers, preview: true }),
+      })
+      const json = await res.json()
+
+      if (res.ok) {
+        setPreviewData(json.data)
+        setUploadPayload({ rawRows, headers })
+        setShowPreview(true)
+      } else {
+        toast({ title: json.error || 'Gagal membaca file', type: 'error' })
+      }
+    } catch (err: any) {
+      toast({ title: `Error: ${err.message || 'Gagal memproses file'}`, type: 'error' })
+    } finally {
+      setImporting(false)
+      // JANGAN reset fileRef di sini agar bisa di-submit nanti
+    }
+  }
+
+  const confirmUpload = async () => {
+    if (!uploadPayload) return
+    setImporting(true)
+    try {
+      const res = await fetch('/api/orders', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...uploadPayload, preview: false }),
       })
       const json = await res.json()
 
@@ -124,14 +166,68 @@ export default function OrdersPage() {
         setImportResult(json.data)
         toast({ title: json.data.message, type: 'success' })
         qc.invalidateQueries({ queryKey: ['orders'] })
+        setShowPreview(false)
       } else {
         toast({ title: json.error || 'Import gagal', type: 'error' })
       }
     } catch (err: any) {
-      toast({ title: `Error: ${err.message || 'Gagal memproses file'}`, type: 'error' })
+      toast({ title: `Error: ${err.message || 'Gagal import'}`, type: 'error' })
     } finally {
       setImporting(false)
+      setUploadPayload(null)
       if (fileRef.current) fileRef.current.value = ''
+    }
+  }
+
+  const cancelUpload = () => {
+    setShowPreview(false)
+    setPreviewData(null)
+    setUploadPayload(null)
+    if (fileRef.current) fileRef.current.value = ''
+  }
+
+  const handleDeleteSelected = async () => {
+    if (!confirm(`Yakin menghapus ${selectedIds.length} pesanan terpilih?`)) return
+    setDeleting(true)
+    try {
+      const res = await fetch('/api/orders', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids: selectedIds }),
+      })
+      const json = await res.json()
+      if (res.ok) {
+        toast({ title: json.data.message, type: 'success' })
+        setSelectedIds([])
+        qc.invalidateQueries({ queryKey: ['orders'] })
+      } else {
+        toast({ title: json.error || 'Gagal hapus', type: 'error' })
+      }
+    } catch (err: any) {
+      toast({ title: `Error: ${err.message}`, type: 'error' })
+    } finally {
+      setDeleting(false)
+    }
+  }
+
+  const handleEditSubmit = async (e: React.FormEvent, form: any) => {
+    e.preventDefault()
+    try {
+      const res = await fetch(`/api/orders/${editingOrder.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(form)
+      })
+      const json = await res.json()
+      if (res.ok) {
+        toast({ title: json.data.message, type: 'success' })
+        setEditingOrder(null)
+        qc.invalidateQueries({ queryKey: ['orders'] })
+      } else {
+        toast({ title: json.error || 'Gagal update', type: 'error' })
+      }
+    } catch(err:any) {
+      toast({ title: err.message || 'Gagal', type: 'error' })
     }
   }
 
@@ -178,7 +274,7 @@ export default function OrdersPage() {
               className="flex items-center gap-2 bg-emerald-700 hover:bg-emerald-600 disabled:opacity-50 text-white rounded-lg px-3 py-2 text-sm font-medium transition-colors"
             >
               {importing ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
-              {importing ? 'Mengimport...' : 'Upload File'}
+              {importing ? 'Membaca...' : 'Upload File'}
             </button>
             <button onClick={handleExport} className="flex items-center gap-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-lg px-3 py-2 text-sm transition-colors border border-zinc-700">
               <Download size={14} /> Export
@@ -227,12 +323,12 @@ export default function OrdersPage() {
         </div>
 
         {/* Status tabs */}
-        <div className="flex gap-1 flex-wrap">
+        <div className="flex gap-1 flex-wrap items-center">
           {STATUS_GROUPS.map(g => (
             <button
               key={g.key}
               onClick={() => { setStatusGroup(g.key); setPage(1) }}
-              className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors h-[38px] ${
                 statusGroup === g.key
                   ? 'bg-emerald-900/40 text-emerald-400 border-emerald-800'
                   : 'bg-zinc-900 text-zinc-500 border-zinc-800 hover:border-zinc-700 hover:text-zinc-300'
@@ -243,11 +339,28 @@ export default function OrdersPage() {
           ))}
         </div>
 
+        {/* Date Filters */}
+        <div className="flex gap-2 items-center bg-zinc-900 border border-zinc-800 rounded-lg px-3 h-[38px] focus-within:ring-2 focus-within:ring-emerald-500/50">
+          <input
+            type="date"
+            value={dateFrom}
+            onChange={e => { setDateFrom(e.target.value); setPage(1) }}
+            className="bg-transparent text-zinc-300 text-xs focus:outline-none w-28 [&::-webkit-calendar-picker-indicator]:invert-[0.6]"
+          />
+          <span className="text-zinc-500 text-xs">-</span>
+          <input
+            type="date"
+            value={dateTo}
+            onChange={e => { setDateTo(e.target.value); setPage(1) }}
+            className="bg-transparent text-zinc-300 text-xs focus:outline-none w-28 [&::-webkit-calendar-picker-indicator]:invert-[0.6]"
+          />
+        </div>
+
         {/* Platform filter */}
         <select
           value={platform}
           onChange={e => { setPlatform(e.target.value); setPage(1) }}
-          className="bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-2 text-sm text-zinc-400 focus:outline-none"
+          className="bg-zinc-900 border border-zinc-800 rounded-lg px-3 text-sm text-zinc-400 focus:outline-none h-[38px]"
         >
           <option value="">Semua Platform</option>
           <option value="TikTok">TikTok</option>
@@ -256,13 +369,45 @@ export default function OrdersPage() {
         </select>
       </div>
 
+      {/* Bulk Action Bar */}
+      {selectedIds.length > 0 && (
+        <div className="mb-4 bg-emerald-900/30 border border-emerald-800/50 rounded-xl px-4 py-3 flex items-center justify-between">
+          <p className="text-sm text-emerald-300 font-medium">{selectedIds.length} pesanan terpilih</p>
+          <div className="flex gap-2">
+            <button onClick={() => setSelectedIds([])} className="text-xs text-zinc-400 hover:text-zinc-200 px-3 py-1.5">Batal</button>
+            {canEdit && (
+              <button 
+                onClick={handleDeleteSelected} 
+                disabled={deleting}
+                className="flex items-center gap-1.5 bg-red-500/20 text-red-400 hover:bg-red-500/30 border border-red-500/30 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors"
+              >
+                {deleting ? <Loader2 size={12} className="animate-spin" /> : <Trash size={12} />}
+                Hapus
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Table */}
       <div className="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden">
         <div className="overflow-x-auto">
           <table className="data-table">
             <thead>
               <tr>
+                <th className="w-10">
+                  <input 
+                    type="checkbox" 
+                    className="rounded border-zinc-700 bg-zinc-800 accent-emerald-500 w-3.5 h-3.5"
+                    checked={orders.length > 0 && selectedIds.length === orders.length}
+                    onChange={(e) => {
+                      if (e.target.checked) setSelectedIds(orders.map((o: any) => o.id))
+                      else setSelectedIds([])
+                    }}
+                  />
+                 </th>
                 <th className="w-36">No. Pesanan</th>
+                <th className="w-36">No. Resi</th>
                 <th className="w-32">SKU</th>
                 <th>Produk</th>
                 <th className="w-20">Platform</th>
@@ -272,18 +417,19 @@ export default function OrdersPage() {
                 <th className="w-24">Status</th>
                 <th className="w-20">Payout</th>
                 <th className="w-24">Tgl Pesan</th>
+                {user?.userRole === 'OWNER' && <th className="w-16"></th>}
               </tr>
             </thead>
             <tbody>
               {isLoading ? (
                 Array.from({ length: 8 }).map((_, i) => (
-                  <tr key={i}>{Array.from({ length: 10 }).map((_, j) => (
+                  <tr key={i}>{Array.from({ length: user?.userRole === 'OWNER' ? 13 : 12 }).map((_, j) => (
                     <td key={j}><div className="h-4 bg-zinc-800 rounded animate-pulse" /></td>
                   ))}</tr>
                 ))
               ) : orders.length === 0 ? (
                 <tr>
-                  <td colSpan={10} className="text-center py-12 text-zinc-600">
+                  <td colSpan={user?.userRole === 'OWNER' ? 13 : 12} className="text-center py-12 text-zinc-600">
                     <ShoppingCart size={32} className="mx-auto mb-2 opacity-30" />
                     <p>Tidak ada pesanan</p>
                     {canEdit && <p className="text-xs mt-1">Upload file dari TikTok atau Shopee untuk mulai</p>}
@@ -291,10 +437,23 @@ export default function OrdersPage() {
                 </tr>
               ) : (
                 orders.map((o: any) => (
-                  <tr key={o.id}>
+                  <tr key={o.id} className={selectedIds.includes(o.id) ? 'bg-zinc-800/50' : ''}>
+                    <td>
+                      <input 
+                        type="checkbox" 
+                        className="rounded border-zinc-700 bg-zinc-800 accent-emerald-500 w-3.5 h-3.5"
+                        checked={selectedIds.includes(o.id)}
+                        onChange={(e) => {
+                          if (e.target.checked) setSelectedIds(p => [...p, o.id])
+                          else setSelectedIds(p => p.filter(id => id !== o.id))
+                        }}
+                      />
+                    </td>
                     <td>
                       <p className="font-mono text-xs text-zinc-300 truncate max-w-[130px]" title={o.orderNo}>{o.orderNo}</p>
-                      {o.airwaybill && <p className="text-[10px] text-zinc-600 truncate">{o.airwaybill}</p>}
+                    </td>
+                    <td>
+                      {o.airwaybill ? <p className="font-mono text-[10px] text-zinc-400 truncate w-32">{o.airwaybill}</p> : <span className="text-zinc-600">—</span>}
                     </td>
                     <td>
                       <span className="font-mono text-xs text-zinc-400">{o.sku || '—'}</span>
@@ -331,6 +490,13 @@ export default function OrdersPage() {
                       }
                     </td>
                     <td className="text-[10px] text-zinc-500">{o.orderCreatedAt?.slice(0, 10) || '—'}</td>
+                    {user?.userRole === 'OWNER' && (
+                      <td>
+                        <button onClick={() => setEditingOrder(o)} className="p-1 px-2 text-[10px] bg-zinc-800 text-zinc-400 hover:text-white rounded">
+                          Edit
+                        </button>
+                      </td>
+                    )}
                   </tr>
                 ))
               )}
@@ -358,6 +524,148 @@ export default function OrdersPage() {
           </div>
         )}
       </div>
+
+      {/* Preview Dialog */}
+      {showPreview && previewData && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl w-full max-w-2xl overflow-hidden shadow-2xl flex flex-col max-h-[85vh]">
+            
+            <div className="flex items-center justify-between px-6 py-4 border-b border-zinc-800 bg-zinc-900/50">
+              <h2 className="text-lg font-semibold text-zinc-100 flex items-center gap-2">
+                <CheckCircle2 className="text-emerald-400" size={18} />
+                Preview Import {previewData.platform}
+              </h2>
+              <button onClick={cancelUpload} className="text-zinc-500 hover:text-zinc-300">
+                <X size={20} />
+              </button>
+            </div>
+
+            <div className="p-6 overflow-y-auto">
+              <div className="grid grid-cols-3 gap-4 mb-6">
+                <div className="bg-zinc-950/50 border border-zinc-800 p-4 rounded-xl">
+                  <p className="text-xs text-zinc-500 mb-1">Total Data Dibaca</p>
+                  <p className="text-2xl font-bold text-zinc-100">{previewData.totalParsed}</p>
+                </div>
+                <div className="bg-emerald-950/20 border border-emerald-900 p-4 rounded-xl">
+                  <p className="text-xs text-zinc-500 mb-1">Siap Diimport</p>
+                  <p className="text-2xl font-bold text-emerald-400">{previewData.toInsertCount}</p>
+                </div>
+                <div className="bg-amber-950/20 border border-amber-900/50 p-4 rounded-xl">
+                  <p className="text-xs text-zinc-500 mb-1">Dilewati (Duplikat)</p>
+                  <p className="text-2xl font-bold text-amber-500">{previewData.skipped}</p>
+                </div>
+              </div>
+
+              {previewData.toInsertCount === 0 ? (
+                <div className="py-8 text-center bg-zinc-950/50 rounded-xl border border-dashed border-zinc-800">
+                  <AlertCircle size={24} className="mx-auto mb-2 text-zinc-600" />
+                  <p className="font-medium text-zinc-300">Tidak ada data baru yang bisa diimport.</p>
+                  <p className="text-sm text-zinc-500 mt-1">Semua pesanan di dalam file ini sudah ada di sistem.</p>
+                </div>
+              ) : (
+                <div>
+                  <h3 className="text-sm font-medium text-zinc-400 mb-3 flex items-center gap-2">
+                    <div className="h-px bg-zinc-800 flex-1"></div>
+                    Menampilkan {previewData.previewItems.length} data pertama
+                    <div className="h-px bg-zinc-800 flex-1"></div>
+                  </h3>
+                  
+                  <div className="bg-zinc-950 border border-zinc-800 rounded-xl overflow-hidden">
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left text-xs">
+                        <thead className="bg-zinc-900/50 text-zinc-500">
+                          <tr>
+                            <th className="px-3 py-2 font-medium">No. Pesanan</th>
+                            <th className="px-3 py-2 font-medium">SKU</th>
+                            <th className="px-3 py-2 font-medium">Produk</th>
+                            <th className="px-3 py-2 font-medium">Harga / Omzet</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-zinc-800/50 text-zinc-300">
+                          {previewData.previewItems.map((item: any, i: number) => (
+                            <tr key={i} className="hover:bg-zinc-900/50">
+                              <td className="px-3 py-2 font-mono">{item.orderNo}</td>
+                              <td className="px-3 py-2">{item.sku || '-'}</td>
+                              <td className="px-3 py-2 line-clamp-1" title={item.productName}>{item.productName}</td>
+                              <td className="px-3 py-2 font-medium text-emerald-400">
+                                {formatRupiah(item.realOmzet, true)}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="px-6 py-4 border-t border-zinc-800 bg-zinc-900/50 flex gap-3 justify-end items-center">
+              <button 
+                onClick={cancelUpload}
+                disabled={importing}
+                className="px-4 py-2 text-sm font-medium text-zinc-400 hover:text-white transition-colors"
+              >
+                Batal
+              </button>
+              <button
+                onClick={confirmUpload}
+                disabled={importing || previewData.toInsertCount === 0}
+                className="flex items-center gap-2 px-5 py-2 text-sm font-medium bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {importing ? <Loader2 size={16} className="animate-spin" /> : <CheckCircle2 size={16} />}
+                {importing ? "Mengimport..." : "Konfirmasi & Import"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Dialog (Owner Only) */}
+      {editingOrder && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl w-full max-w-sm p-6">
+            <h2 className="text-base font-semibold text-white mb-4">Edit Pesanan (Owner)</h2>
+            <form onSubmit={(e) => {
+              const formData = new FormData(e.currentTarget)
+              handleEditSubmit(e, {
+                status: formData.get('status'),
+                airwaybill: formData.get('airwaybill'),
+                qty: formData.get('qty'),
+                realOmzet: formData.get('realOmzet'),
+                totalProductPrice: formData.get('totalProductPrice')
+              })
+            }} className="space-y-3">
+              <div>
+                <label className="block text-xs text-zinc-500 mb-1">Status</label>
+                <input name="status" defaultValue={editingOrder.status} className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-200 focus:outline-none"/>
+              </div>
+              <div>
+                <label className="block text-xs text-zinc-500 mb-1">No. Resi</label>
+                <input name="airwaybill" defaultValue={editingOrder.airwaybill || ''} className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-200 focus:outline-none"/>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs text-zinc-500 mb-1">Qty</label>
+                  <input name="qty" type="number" defaultValue={editingOrder.qty} className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-200 focus:outline-none"/>
+                </div>
+                <div>
+                  <label className="block text-xs text-zinc-500 mb-1">Harga Produk</label>
+                  <input name="totalProductPrice" type="number" defaultValue={editingOrder.totalProductPrice} className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-200 focus:outline-none"/>
+                </div>
+              </div>
+              <div>
+                <label className="block text-xs text-zinc-500 mb-1">Real Omzet</label>
+                <input name="realOmzet" type="number" defaultValue={editingOrder.realOmzet} className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm border-emerald-500/50 text-emerald-400 focus:outline-none"/>
+              </div>
+              <div className="flex gap-2 pt-3">
+                <button type="button" onClick={() => setEditingOrder(null)} className="flex-1 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-lg py-2 text-sm">Batal</button>
+                <button type="submit" className="flex-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg py-2 text-sm font-medium">Simpan</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </AppLayout>
   )
 }
