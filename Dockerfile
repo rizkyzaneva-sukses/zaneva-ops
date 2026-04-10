@@ -55,5 +55,5 @@ EXPOSE 3000
 ENV PORT=3000
 ENV HOSTNAME="0.0.0.0"
 
-# Sync schema to DB then start app
-CMD ["sh", "-c", "node node_modules/prisma/build/index.js db push --accept-data-loss && node server.js"]
+# Sync schema to DB then start app (non-blocking: server starts even if push fails)
+CMD ["sh", "-c", "node node_modules/prisma/build/index.js db push --accept-data-loss || echo 'Prisma push failed, starting server anyway'; node server.js"]
