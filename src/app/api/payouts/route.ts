@@ -443,3 +443,40 @@ export async function POST(request: NextRequest) {
     detailDuplikat,
   }, 201)
 }
+
+// ─────────────────────────────────────────────
+// DELETE /api/payouts
+// ─────────────────────────────────────────────
+export async function DELETE(request: NextRequest) {
+  const session = await getSession()
+  if (!session.isLoggedIn) return apiError('Unauthorized', 401)
+  if (session.userRole !== 'OWNER') return apiError('Forbidden', 403)
+
+  try {
+    const body = await request.json()
+    const { ids } = body
+    if (!ids || !Array.isArray(ids)) return apiError('Parameter ids tidak valid')
+
+    const payouts = await prisma.payout.findMany({
+      where: { id: { in: ids } },
+      select: { orderNo: true }
+    })
+    const orderNos = payouts.map(p => p.orderNo)
+
+    await prisma.$transaction([
+      prisma.walletLedger.deleteMany({
+        where: {
+          refOrderNo: { in: orderNos },
+          trxType: 'PAYOUT'
+        }
+      }),
+      prisma.payout.deleteMany({
+        where: { id: { in: ids } }
+      })
+    ])
+
+    return apiSuccess({ message: `${payouts.length} payout berhasil dihapus` })
+  } catch (error: any) {
+    return apiError(error.message || 'Gagal menghapus payout', 500)
+  }
+}

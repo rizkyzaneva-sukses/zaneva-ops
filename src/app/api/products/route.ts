@@ -32,7 +32,7 @@ export async function GET(request: NextRequest) {
     prisma.masterProduct.findMany({
       where,
       include: { category: true },
-      orderBy: { productName: 'asc' },
+      orderBy: { sku: 'asc' },
       skip,
       take,
     }),

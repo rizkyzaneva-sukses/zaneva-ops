@@ -7,9 +7,10 @@ import { formatRupiah, formatDate } from '@/lib/utils'
 import { useToast } from '@/components/ui/toaster'
 import Papa from 'papaparse'
 import * as XLSX from 'xlsx'
+import { useAuth } from '@/components/providers'
 import {
   TrendingUp, Upload, Loader2, ChevronLeft, ChevronRight,
-  X, ShoppingBag, Music2, CalendarRange, AlertTriangle,
+  X, ShoppingBag, Music2, CalendarRange, AlertTriangle, Trash
 } from 'lucide-react'
 
 // ─── Types ───────────────────────────────────────────
@@ -82,6 +83,7 @@ function BreakdownRow({ shopeeVal, tiktokVal }: { shopeeVal: number; tiktokVal: 
 export default function PayoutsPage() {
   const qc = useQueryClient()
   const { toast } = useToast()
+  const { user } = useAuth()
 
   // File refs
   const csvRef    = useRef<HTMLInputElement>(null)
@@ -95,6 +97,8 @@ export default function PayoutsPage() {
   const [platform,   setPlatform]   = useState('')
   const [page,       setPage]       = useState(1)
   const [importing,  setImporting]  = useState(false)
+  const [selectedIds, setSelectedIds] = useState<string[]>([])
+  const [deleting, setDeleting] = useState(false)
 
   // Modal states
   const [shopeeModal,   setShopeeModal]   = useState(false)
@@ -135,7 +139,33 @@ export default function PayoutsPage() {
   const summary    = summaryData ?? null
 
   // Reset page on filter change
-  const resetPage = () => setPage(1)
+  const resetPage = () => { setPage(1); setSelectedIds([]) }
+
+  const handleDeleteSelected = async () => {
+    if (!confirm(`Yakin menghapus ${selectedIds.length} payout terpilih?`)) return
+    setDeleting(true)
+    try {
+      const res = await fetch('/api/payouts', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids: selectedIds }),
+      })
+      const json = await res.json()
+      if (res.ok) {
+        toast({ title: json.data.message, type: 'success' })
+        setSelectedIds([])
+        qc.invalidateQueries({ queryKey: ['payouts'] })
+        qc.invalidateQueries({ queryKey: ['payouts-summary'] })
+        qc.invalidateQueries({ queryKey: ['wallets'] })
+      } else {
+        toast({ title: json.error || 'Gagal hapus', type: 'error' })
+      }
+    } catch (err: any) {
+      toast({ title: `Error: ${err.message}`, type: 'error' })
+    } finally {
+      setDeleting(false)
+    }
+  }
 
   // ── Handlers ─────────────────────────────────────────
 
@@ -449,10 +479,41 @@ export default function PayoutsPage() {
           </div>
         </div>
 
+        {/* Bulk action bar */}
+        {selectedIds.length > 0 && user?.userRole === 'OWNER' && (
+          <div className="bg-emerald-900/30 border-b border-zinc-800 px-4 py-2 flex items-center justify-between">
+            <p className="text-sm text-emerald-300 font-medium">{selectedIds.length} payout terpilih</p>
+            <div className="flex gap-2">
+              <button onClick={() => setSelectedIds([])} className="text-xs text-zinc-400 hover:text-zinc-200 px-3 py-1.5">Batal</button>
+              <button 
+                onClick={handleDeleteSelected} 
+                disabled={deleting}
+                className="flex items-center gap-1.5 bg-red-500/20 text-red-400 hover:bg-red-500/30 border border-red-500/30 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors"
+               >
+                {deleting ? <Loader2 size={12} className="animate-spin" /> : <Trash size={12} />}
+                Hapus
+              </button>
+            </div>
+          </div>
+        )}
+
         <div className="overflow-x-auto">
           <table className="data-table">
             <thead>
               <tr>
+                {user?.userRole === 'OWNER' && (
+                  <th className="w-10">
+                    <input 
+                      type="checkbox" 
+                      className="rounded border-zinc-700 bg-zinc-800 accent-emerald-500 w-3.5 h-3.5"
+                      checked={payouts.length > 0 && selectedIds.length === payouts.length}
+                      onChange={(e) => {
+                        if (e.target.checked) setSelectedIds(payouts.map((p: any) => p.id))
+                        else setSelectedIds([])
+                      }}
+                    />
+                  </th>
+                )}
                 <th>No. Order</th>
                 <th className="w-24">Platform</th>
                 <th className="w-28">Tgl Cair</th>
@@ -466,13 +527,13 @@ export default function PayoutsPage() {
             <tbody>
               {isLoading ? Array.from({ length: 8 }).map((_, i) => (
                 <tr key={i}>
-                  {Array.from({ length: 8 }).map((_, j) => (
+                  {Array.from({ length: user?.userRole === 'OWNER' ? 9 : 8 }).map((_, j) => (
                     <td key={j}><div className="h-4 bg-zinc-800 rounded animate-pulse" /></td>
                   ))}
                 </tr>
               )) : payouts.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="text-center py-10 text-zinc-600">
+                  <td colSpan={user?.userRole === 'OWNER' ? 9 : 8} className="text-center py-10 text-zinc-600">
                     Belum ada data payout
                   </td>
                 </tr>
@@ -481,7 +542,20 @@ export default function PayoutsPage() {
                 omzet: number; platformFee: number; amsFee: number; totalIncome: number
                 wallet?: { name: string }
               }) => (
-                <tr key={p.id}>
+                <tr key={p.id} className={selectedIds.includes(p.id) ? 'bg-zinc-800/50' : ''}>
+                  {user?.userRole === 'OWNER' && (
+                    <td>
+                      <input 
+                        type="checkbox" 
+                        className="rounded border-zinc-700 bg-zinc-800 accent-emerald-500 w-3.5 h-3.5"
+                        checked={selectedIds.includes(p.id)}
+                        onChange={(e) => {
+                          if (e.target.checked) setSelectedIds(prev => [...prev, p.id])
+                          else setSelectedIds(prev => prev.filter(id => id !== p.id))
+                        }}
+                      />
+                    </td>
+                  )}
                   <td><span className="font-mono text-xs text-zinc-400">{p.orderNo}</span></td>
                   <td>
                     {p.platform ? (

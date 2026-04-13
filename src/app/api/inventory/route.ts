@@ -24,7 +24,7 @@ export async function GET(request: NextRequest) {
       }),
     },
     include: { category: true },
-    orderBy: { productName: 'asc' },
+    orderBy: { sku: 'asc' },
   })
 
   // Fetch all ledger entries for these SKUs

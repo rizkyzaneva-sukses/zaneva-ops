@@ -22,7 +22,7 @@ export async function GET(_request: NextRequest) {
     prisma.masterProduct.findMany({
       where: { isActive: true },
       include: { category: { select: { categoryName: true } } },
-      orderBy: { productName: 'asc' },
+      orderBy: { sku: 'asc' },
     }),
 
     // All inventory ledger
