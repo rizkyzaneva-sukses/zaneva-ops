@@ -24,6 +24,7 @@ interface ScanResult {
   status?: string
   receiverName?: string
   productName?: string
+  items?: { sku: string; qty: number; productName: string }[]
   updatedCount?: number
   error?: string
   scannedAt?: string
@@ -50,6 +51,67 @@ function beep(type: ScanStatusType) {
     }
   } catch {}
 }
+
+function getKresekInfo(items: { sku: string; qty: number; productName: string }[] = []) {
+  if (items.length === 0) return null
+
+  let totalQty = 0
+  let kresekQty = 0
+
+  items.forEach(item => {
+    totalQty += item.qty
+    const name = (item.productName || '').toLowerCase()
+    if (!name.includes('miki hat') && !name.includes('peci uas')) {
+      kresekQty += item.qty
+    }
+  })
+
+  let kresekName = '⚪ Putih/Hitam'
+  if (kresekQty <= 1) kresekName = '🟡 Silver'
+  else if (kresekQty === 2) kresekName = '🟡 Kuning'
+
+  return { totalQty, kresekName }
+}
+
+function OrderItemsInfo({ items, receiverName }: { items?: {sku: string, qty: number, productName: string}[], receiverName?: string }) {
+  if (!items || items.length === 0) return null;
+  const kresek = getKresekInfo(items);
+  
+  return (
+    <div className="mt-3 bg-black/20 p-3 rounded-xl border border-white/5 text-left w-full sm:max-w-sm">
+       <div className="font-semibold text-zinc-100 text-base mb-2">{receiverName}</div>
+       <table className="w-full text-sm text-zinc-300 border border-zinc-700/50 rounded-lg overflow-hidden mb-3">
+         <thead className="bg-zinc-800/70 text-xs">
+           <tr>
+             <th className="px-3 py-1.5 text-left font-medium">SKU</th>
+             <th className="px-3 py-1.5 text-right font-medium w-16">QTY</th>
+           </tr>
+         </thead>
+         <tbody className="divide-y divide-zinc-800/50">
+            {items.map((it, i) => (
+              <tr key={i} className="hover:bg-zinc-800/40">
+                <td className="px-3 py-1.5 font-mono text-[11px] truncate max-w-[180px]" title={it.productName}>{it.sku || '-'}</td>
+                <td className="px-3 py-1.5 text-right font-bold text-white">{it.qty}</td>
+              </tr>
+            ))}
+         </tbody>
+       </table>
+       {kresek && (
+         <div className="text-sm bg-zinc-900/60 p-2.5 rounded-lg border border-zinc-700/50 shadow-inner">
+           <div className="flex justify-between mb-1 items-center">
+             <span className="text-zinc-400 text-xs font-medium">Total QTY</span>
+             <span className="font-bold text-zinc-200 text-base bg-black/40 px-2 rounded">{kresek.totalQty}</span>
+           </div>
+           <div className="flex justify-between items-center">
+             <span className="text-zinc-400 text-xs font-medium">Kresek</span>
+             <span className="font-semibold tracking-wide drop-shadow-sm">{kresek.kresekName}</span>
+           </div>
+         </div>
+       )}
+    </div>
+  )
+}
+
 
 export default function ScanOrderPage() {
   const { toast } = useToast()
@@ -340,9 +402,8 @@ export default function ScanOrderPage() {
                      <CheckCircle size={56} className="text-white"/>
                    </div>
                    <div className="text-4xl font-black tracking-tight mb-3 drop-shadow-md">TERKIRIM</div>
-                   <div className="text-2xl font-mono bg-black/20 px-5 py-2.5 rounded-xl mb-5 shadow-inner">{lastResult?.orderNo}</div>
-                   <div className="text-xl font-bold drop-shadow-sm">{lastResult?.receiverName}</div>
-                   <div className="text-base font-medium opacity-90 drop-shadow-sm">{lastResult?.productName}</div>
+                   <div className="text-2xl font-mono bg-black/20 px-5 py-2.5 rounded-xl mb-3 shadow-inner">{lastResult?.orderNo}</div>
+                   <OrderItemsInfo items={lastResult?.items} receiverName={lastResult?.receiverName} />
                 </div>
              )}
 
@@ -465,12 +526,7 @@ export default function ScanOrderPage() {
                     <p className="text-base text-zinc-300 mt-1.5 flex items-center gap-2 flex-wrap">
                       Order <span className="text-white font-mono bg-black/30 px-2 py-0.5 rounded-md font-medium border border-white/5">{lastResult.orderNo}</span> → <span className="text-emerald-400 font-bold bg-emerald-950 px-2 py-0.5 rounded-md">TERKIRIM</span>
                     </p>
-                    {lastResult.receiverName && (
-                      <div className="mt-3 bg-black/20 p-3 rounded-xl border border-white/5">
-                         <div className="font-semibold text-zinc-100 text-base">{lastResult.receiverName}</div>
-                         <div className="text-sm text-zinc-400 mt-0.5">{lastResult.productName}</div>
-                      </div>
-                    )}
+                    <OrderItemsInfo items={lastResult.items} receiverName={lastResult.receiverName} />
                   </>
                 ) : lastResult.statusType === 'duplicate' ? (
                   <>

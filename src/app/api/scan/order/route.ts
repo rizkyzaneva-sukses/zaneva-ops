@@ -36,6 +36,12 @@ export async function POST(request: NextRequest) {
     data: { status: terkirimStatus },
   })
 
+  // get all items
+  const allItems = await prisma.order.findMany({
+    where: { orderNo },
+    select: { sku: true, productName: true, qty: true }
+  })
+
   // Create scan log
   await prisma.orderScanLog.create({
     data: {
@@ -66,6 +72,7 @@ export async function POST(request: NextRequest) {
     updatedCount: updateResult.count,
     receiverName: matchedOrder.receiverName,
     productName: matchedOrder.productName,
+    items: allItems,
   })
 }
 
@@ -87,34 +94,35 @@ export async function GET(request: NextRequest) {
     return apiSuccess(null)
   }
 
+  const allItems = await prisma.order.findMany({
+    where: { orderNo: matchedOrder.orderNo },
+    select: { sku: true, productName: true, qty: true }
+  })
+
   const scanLog = await prisma.orderScanLog.findFirst({
     where: { orderNo: matchedOrder.orderNo },
     orderBy: { createdAt: 'desc' }
   })
 
+  let operator = 'Unknown'
+  let scannedAtStr = ''
+  
   if (scanLog) {
-    // try to get username if scannedBy is ID, but we might just return the raw ID if we don't join User
-    // However let's fetch user just in case
-    let operator = scanLog.scannedBy
-    if (operator) {
+    operator = scanLog.scannedBy || 'Unknown'
+    if (operator !== 'Unknown') {
       const user = await prisma.appUser.findFirst({ where: { id: operator } })
       if (user) operator = user.username
     }
-
-    return apiSuccess({
-      found: true,
-      scannedAt: formatInTimeZone(scanLog.scannedAt, 'Asia/Jakarta', 'yyyy-MM-dd HH:mm:ss') + ' WIB',
-      scannedBy: operator || 'Unknown',
-      orderNo: matchedOrder.orderNo,
-      receiverName: matchedOrder.receiverName,
-      productName: matchedOrder.productName
-    })
+    scannedAtStr = formatInTimeZone(scanLog.scannedAt, 'Asia/Jakarta', 'yyyy-MM-dd HH:mm:ss') + ' WIB'
   }
 
   return apiSuccess({
-    found: false,
+    found: !!scanLog,
+    scannedAt: scannedAtStr,
+    scannedBy: operator,
     orderNo: matchedOrder.orderNo,
     receiverName: matchedOrder.receiverName,
-    productName: matchedOrder.productName
+    productName: matchedOrder.productName,
+    items: allItems
   })
 }
