@@ -4,6 +4,26 @@ import { getSession } from '@/lib/session'
 import { apiSuccess, apiError, getPagination } from '@/lib/utils'
 import { parseShopeeOrders, parseTikTokOrders, detectPlatform } from '@/lib/order-parsers'
 
+/**
+ * Parse raw order_created_at string menjadi Date untuk kolom trx_date
+ * Format TikTok: "09/04/2026 00:17:22" (DD/MM/YYYY HH:mm:ss)
+ * Format Shopee: "2026-04-09 06:19"    (YYYY-MM-DD HH:mm)
+ */
+function parseOrderDate(raw: string | null | undefined): Date | null {
+  if (!raw) return null
+  // Format Shopee: "2026-04-09 06:19"
+  if (/^\d{4}-\d{2}-\d{2}/.test(raw)) {
+    return new Date(raw.replace(' ', 'T') + ':00+07:00')
+  }
+  // Format TikTok: "09/04/2026 00:17:22"
+  if (/^\d{2}\/\d{2}\/\d{4}/.test(raw)) {
+    const [datePart, timePart] = raw.split(' ')
+    const [d, m, y] = datePart.split('/')
+    return new Date(`${y}-${m}-${d}T${timePart || '00:00:00'}+07:00`)
+  }
+  return null
+}
+
 // GET /api/orders
 export async function GET(request: NextRequest) {
   const session = await getSession()
@@ -149,6 +169,7 @@ export async function POST(request: NextRequest) {
     platform: o.platform,
     airwaybill: o.airwaybill,
     orderCreatedAt: o.orderCreatedAt,
+    trxDate: parseOrderDate(o.orderCreatedAt),  // parsed DateTime untuk filter yg reliable
     sku: o.sku,
     productName: o.productName,
     qty: o.qty,

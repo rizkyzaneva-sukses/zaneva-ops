@@ -314,6 +314,7 @@ model Order {
   platform            String?
   airwaybill          String?
   orderCreatedAt      String?   @map("order_created_at")
+  trxDate             DateTime? @map("trx_date")
   sku                 String?
   productName         String?   @map("product_name")
   qty                 Int       @default(1)
@@ -334,9 +335,11 @@ model Order {
   @@index([status])
   @@index([platform])
   @@index([orderCreatedAt])
+  @@index([trxDate])
   @@index([platform, status])
   @@index([status, orderCreatedAt])
   @@index([platform, orderCreatedAt])
+  @@index([trxDate, platform])
   @@map("orders")
 }
 

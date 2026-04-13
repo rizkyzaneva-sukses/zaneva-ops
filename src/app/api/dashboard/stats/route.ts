@@ -8,6 +8,9 @@ import { apiSuccess, apiError } from '@/lib/utils'
  * Semua kalkulasi dilakukan di PostgreSQL.
  * Browser hanya terima angka ringkasan — tidak ada array besar.
  * Query param: dateFrom, dateTo (YYYY-MM-DD)
+ *
+ * FIX: Menggunakan kolom trx_date (DateTime) bukan order_created_at (String)
+ * karena order_created_at format campuran TikTok/Shopee tidak reliable untuk comparison.
  */
 export async function GET(request: NextRequest) {
   const session = await getSession()
@@ -17,18 +20,19 @@ export async function GET(request: NextRequest) {
   const dateFrom = searchParams.get('dateFrom') // YYYY-MM-DD
   const dateTo   = searchParams.get('dateTo')   // YYYY-MM-DD
 
-  // Build date filter untuk orderCreatedAt (stored as string)
-  // Format TikTok: "09/04/2026 00:17:22", Shopee: "2026-04-09 06:19"
-  // Kita simpan as-is, filter pakai >= <= pada string ISO
+  // Build date filter menggunakan trxDate (DateTime) — reliable untuk semua format
   const dateFilter = dateFrom && dateTo ? {
-    orderCreatedAt: {
-      gte: dateFrom,
-      lte: dateTo + ' 23:59:59',
+    trxDate: {
+      gte: new Date(dateFrom + 'T00:00:00+07:00'),
+      lte: new Date(dateTo   + 'T23:59:59+07:00'),
     }
   } : {}
 
-  // ── 1. Order counts by status group ────────────────
-  // Semua dilakukan dalam 1 query groupBy
+  // Raw date bounds untuk queryRaw
+  const gteDate = dateFrom ? new Date(dateFrom + 'T00:00:00+07:00') : null
+  const lteDate = dateTo   ? new Date(dateTo   + 'T23:59:59+07:00') : null
+
+  // ── 1. Semua query dalam 1 Promise.all ──────────────
   const [
     orderStats,
     platformBreakdown,
@@ -40,20 +44,33 @@ export async function GET(request: NextRequest) {
     omzetByPlatform,
   ] = await Promise.all([
 
-    // Count orders per status group
-    prisma.$queryRaw<{ group_key: string; cnt: bigint; total_omzet: bigint }[]>`
-      SELECT
-        CASE
-          WHEN status LIKE 'TERKIRIM%' THEN 'terkirim'
-          WHEN status ILIKE '%batal%' OR status ILIKE '%cancel%' OR status ILIKE '%dibatalkan%' THEN 'batal'
-          ELSE 'perlu_dikirim'
-        END AS group_key,
-        COUNT(*) AS cnt,
-        COALESCE(SUM(real_omzet), 0) AS total_omzet
-      FROM orders
-      ${dateFrom ? prisma.$queryRaw`WHERE order_created_at >= ${dateFrom} AND order_created_at <= ${dateTo + ' 23:59:59'}` : prisma.$queryRaw``}
-      GROUP BY group_key
-    `,
+    // Count orders per status group — gunakan trx_date untuk filter
+    gteDate && lteDate
+      ? prisma.$queryRaw<{ group_key: string; cnt: bigint; total_omzet: bigint }[]>`
+          SELECT
+            CASE
+              WHEN status LIKE 'TERKIRIM%' THEN 'terkirim'
+              WHEN status ILIKE '%batal%' OR status ILIKE '%cancel%' OR status ILIKE '%dibatalkan%' THEN 'batal'
+              ELSE 'perlu_dikirim'
+            END AS group_key,
+            COUNT(*) AS cnt,
+            COALESCE(SUM(real_omzet), 0) AS total_omzet
+          FROM orders
+          WHERE trx_date >= ${gteDate} AND trx_date <= ${lteDate}
+          GROUP BY group_key
+        `
+      : prisma.$queryRaw<{ group_key: string; cnt: bigint; total_omzet: bigint }[]>`
+          SELECT
+            CASE
+              WHEN status LIKE 'TERKIRIM%' THEN 'terkirim'
+              WHEN status ILIKE '%batal%' OR status ILIKE '%cancel%' OR status ILIKE '%dibatalkan%' THEN 'batal'
+              ELSE 'perlu_dikirim'
+            END AS group_key,
+            COUNT(*) AS cnt,
+            COALESCE(SUM(real_omzet), 0) AS total_omzet
+          FROM orders
+          GROUP BY group_key
+        `,
 
     // Count per platform
     prisma.order.groupBy({
@@ -63,7 +80,7 @@ export async function GET(request: NextRequest) {
       _sum: { realOmzet: true },
     }),
 
-    // Aging backlog — order perlu dikirim, grouped by jam
+    // Aging backlog — order perlu dikirim, grouped by jam (always all-time, no date filter)
     prisma.$queryRaw<{ bucket: string; cnt: bigint }[]>`
       SELECT
         CASE
@@ -101,7 +118,7 @@ export async function GET(request: NextRequest) {
       _count: { id: true },
     }),
 
-    // Low stock count
+    // Low stock count (gunakan SQL sama dengan inventory)
     prisma.$queryRaw<{ cnt: bigint }[]>`
       SELECT COUNT(*) AS cnt
       FROM (
@@ -119,7 +136,7 @@ export async function GET(request: NextRequest) {
       WHERE soh <= rop
     `,
 
-    // Top 5 provinsi order
+    // Top 5 provinsi order dalam range
     prisma.order.groupBy({
       by: ['province'],
       where: { ...dateFilter, province: { not: null } },

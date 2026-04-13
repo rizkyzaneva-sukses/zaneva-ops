@@ -11,6 +11,7 @@ export async function GET(request: NextRequest) {
 
   const { searchParams } = request.nextUrl
   const status = searchParams.get('status') || ''
+  const paymentStatus = searchParams.get('paymentStatus') || ''
   const vendorId = searchParams.get('vendorId') || ''
   const search = searchParams.get('search') || ''
   const { skip, take } = getPagination({
@@ -18,8 +19,17 @@ export async function GET(request: NextRequest) {
     limit: Number(searchParams.get('limit') || 20),
   })
 
+  // paymentStatus filter — support 'UNPAID_OR_PARTIAL' compound value
+  let paymentStatusFilter: object | undefined
+  if (paymentStatus === 'UNPAID_OR_PARTIAL') {
+    paymentStatusFilter = { paymentStatus: { in: ['UNPAID', 'PARTIAL_PAID'] } }
+  } else if (paymentStatus) {
+    paymentStatusFilter = { paymentStatus: paymentStatus as any }
+  }
+
   const where = {
     ...(status && { status: status as any }),
+    ...paymentStatusFilter,
     ...(vendorId && { vendorId }),
     ...(search && {
       OR: [

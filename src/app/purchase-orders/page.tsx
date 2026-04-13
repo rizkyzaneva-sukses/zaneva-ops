@@ -5,7 +5,8 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 import { formatRupiah, formatDate, downloadCSV } from '@/lib/utils'
 import { useToast } from '@/components/ui/toaster'
-import { FileText, Plus, ChevronLeft, ChevronRight, Search, Eye, FileDown, Printer, X } from 'lucide-react'
+import { FileText, Plus, ChevronLeft, ChevronRight, Search, Eye, FileDown, Printer, X, CreditCard } from 'lucide-react'
+import { PayVendorModal } from '@/components/ui/pay-vendor-modal'
 
 const PO_STATUS_COLOR: Record<string, string> = {
   OPEN: 'badge-warning', PARTIAL: 'badge-info', COMPLETED: 'badge-success', CANCELLED: 'badge-danger',
@@ -311,12 +312,14 @@ function PrintPOModal({ po, onClose }: { po: any; onClose: () => void }) {
 }
 
 export default function PurchaseOrdersPage() {
+  const qc = useQueryClient()
   const [search, setSearch] = useState('')
   const [status, setStatus] = useState('')
   const [page, setPage] = useState(1)
   const [showCreate, setShowCreate] = useState(false)
   const [printPO, setPrintPO] = useState<any>(null)
   const [detailPO, setDetailPO] = useState<any>(null)
+  const [payPO, setPayPO] = useState<any>(null)  // untuk modal bayar vendor
   const limit = 20
 
   const { data, isLoading } = useQuery({
@@ -371,6 +374,17 @@ export default function PurchaseOrdersPage() {
       )}
       {printPO && (
         <PrintPOModal po={printPO} onClose={() => setPrintPO(null)} />
+      )}
+      {payPO && (
+        <PayVendorModal
+          prefillVendorId={payPO.vendorId}
+          prefillPoId={payPO.id}
+          onClose={() => setPayPO(null)}
+          onSuccess={() => {
+            setPayPO(null)
+            qc.invalidateQueries({ queryKey: ['purchase-orders'] })
+          }}
+        />
       )}
       {showCreate && vendors && products && (
         <CreatePOModal vendors={vendors} products={products} onClose={() => setShowCreate(false)} />
@@ -441,6 +455,11 @@ export default function PurchaseOrdersPage() {
                       <button onClick={() => handleDownload(po)} className="p-1.5 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-blue-400 transition-colors" title="Download CSV">
                         <FileDown size={13} />
                       </button>
+                      {po.paymentStatus !== 'PAID' && (
+                        <button onClick={() => setPayPO(po)} className="p-1.5 rounded bg-zinc-800 hover:bg-emerald-900/50 text-zinc-400 hover:text-emerald-400 transition-colors" title="Bayar Vendor">
+                          <CreditCard size={13} />
+                        </button>
+                      )}
                     </div>
                   </td>
                 </tr>
