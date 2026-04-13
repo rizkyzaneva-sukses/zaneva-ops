@@ -66,19 +66,19 @@ interface TikTokCalc {
 }
 
 function calcTikTok(row: Record<string, unknown>): TikTokCalc {
-  const omzet = n(row['Total Revenue'])
+  const omzet = n(row['Total Revenue'] || row['Total Pendapatan'] || row['Total pendapatan'] || 0)
 
   const biayaPlatform =
-    n(row['Platform commission fee']) +
-    n(row['Order processing fee']) +
-    n(row['Dynamic commission']) +
-    n(row['Shipping cost'])
+    n(row['Platform commission fee'] || row['Biaya komisi platform'] || 0) +
+    n(row['Order processing fee'] || row['Biaya pemrosesan pesanan'] || 0) +
+    n(row['Dynamic commission'] || row['Komisi dinamis'] || 0) +
+    n(row['Shipping cost'] || row['Biaya pengiriman'] || 0)
 
   const biayaAms =
-    n(row['Affiliate Commission']) +
-    n(row['Affiliate Shop Ads commission'])
+    n(row['Affiliate Commission'] || row['Komisi afiliasi'] || 0) +
+    n(row['Affiliate Shop Ads commission'] || row['Komisi Iklan Toko Afiliasi'] || 0)
 
-  const yangDiterima = n(row['Total settlement amount'])
+  const yangDiterima = n(row['Total settlement amount'] || row['Total Settlement Amount'] || row['Jumlah penyelesaian'] || row['Total Penyelesaian'] || 0)
 
   return { omzet, biayaPlatform, biayaAms, yangDiterima }
 }
@@ -252,14 +252,25 @@ export async function POST(request: NextRequest) {
   const detailDuplikat: string[] = []
 
   // Filter valid rows based on source
-  const filteredRows = source === 'tiktok_income'
-    ? (rawRows as Record<string, unknown>[]).filter(r => String(r['Type'] ?? '').trim() === 'Order')
-    : (rawRows as Record<string, unknown>[])
+  let filteredRows: Record<string, unknown>[] = []
+  if (source === 'tiktok_income') {
+    filteredRows = (rawRows as Record<string, unknown>[]).filter(r => {
+      const typeStr = String(r['Type'] || r['Jenis'] || r['Tipe'] || '').trim()
+      return typeStr === 'Order' || typeStr === 'Pesanan'
+    })
+  } else {
+    filteredRows = rawRows as Record<string, unknown>[]
+  }
+
+  if (filteredRows.length === 0 && rawRows.length > 0) {
+    const cols = Object.keys(rawRows[0] || {}).slice(0, 7).join(', ')
+    return apiError(`Format file tidak sesuai atau kosong. Kolom terdeteksi: ${cols}`)
+  }
 
   // Collect all orderNos for bulk duplicate check
   const allOrderNos = filteredRows.map(r => {
     if (source === 'shopee_income') return String(r['No. Pesanan'] ?? '').trim()
-    return String(r['Order/adjustment ID'] ?? '').trim()
+    return String(r['Order/adjustment ID'] || r['ID Pesanan/Penyesuaian'] || r['ID pesanan/penyesuaian'] || '').trim()
   }).filter(Boolean)
 
   const existingPayouts = await prisma.payout.findMany({
@@ -345,7 +356,7 @@ export async function POST(request: NextRequest) {
 
       } else {
         // TikTok
-        const orderNo = String(row['Order/adjustment ID'] ?? '').trim()
+        const orderNo = String(row['Order/adjustment ID'] || row['ID Pesanan/Penyesuaian'] || row['ID pesanan/penyesuaian'] || '').trim()
         if (!orderNo) continue
 
         const calc = calcTikTok(row)
@@ -359,7 +370,7 @@ export async function POST(request: NextRequest) {
           bebanCount++
           totalBeban += settlement
           detailBeban.push({ orderNo, amount: settlement })
-          const rawSettledDate = String(row['Order settled time'] ?? '').trim()
+          const rawSettledDate = String(row['Order settled time'] || row['Waktu penyelesaian pesanan'] || '').trim()
           const trxDate = rawSettledDate
             ? new Date(rawSettledDate.replace(/\//g, '-'))
             : new Date()
@@ -382,7 +393,7 @@ export async function POST(request: NextRequest) {
           continue
         }
 
-        const rawSettledDate = String(row['Order settled time'] ?? '').trim()
+        const rawSettledDate = String(row['Order settled time'] || row['Waktu penyelesaian pesanan'] || '').trim()
         const releasedDate = rawSettledDate
           ? new Date(rawSettledDate.replace(/\//g, '-'))
           : new Date()
