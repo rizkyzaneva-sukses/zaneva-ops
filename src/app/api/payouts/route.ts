@@ -234,7 +234,7 @@ export async function POST(request: NextRequest) {
   if (source !== 'shopee_income' && source !== 'tiktok_income')
     return apiError('Source tidak dikenal')
 
-  const { rawRows, periodeFrom, periodeTo } = body
+  const { rawRows, periodeFrom, periodeTo, isPreview } = body
   if (!Array.isArray(rawRows) || rawRows.length === 0)
     return apiError('Data rows kosong')
 
@@ -250,16 +250,22 @@ export async function POST(request: NextRequest) {
   let totalBeban     = 0
   const detailBeban: { orderNo: string; amount: number }[] = []
   const detailDuplikat: string[] = []
-
-  // Filter valid rows based on source
-  let filteredRows: Record<string, unknown>[] = []
+  // For UI preview
+  const invalidRows: { rowNumber: number; value: string; reason: string }[] = []
+  
+  // Filter valid rows based on source to keep line numbers accurate
+  const mappedRows = rawRows.map((row, idx) => ({ ...row, __lineNum: idx + 2 })) // +2 because header is row 1
+  let filteredRows: any[] = []
+  
   if (source === 'tiktok_income') {
-    filteredRows = (rawRows as Record<string, unknown>[]).filter(r => {
+    filteredRows = mappedRows.filter(r => {
       const typeStr = String(r['Type'] || r['Jenis'] || r['Tipe'] || '').trim()
+      // If TikTok data has a type column, filter only "Order". If no type column, accept all and let validations handle it.
+      if (!('Type' in r) && !('Jenis' in r) && !('Tipe' in r)) return true
       return typeStr === 'Order' || typeStr === 'Pesanan'
     })
   } else {
-    filteredRows = rawRows as Record<string, unknown>[]
+    filteredRows = mappedRows
   }
 
   if (filteredRows.length === 0 && rawRows.length > 0) {
@@ -279,171 +285,166 @@ export async function POST(request: NextRequest) {
   })
   const existingSet = new Set(existingPayouts.map(e => e.orderNo))
 
-  // Process in chunks
-  for (let i = 0; i < filteredRows.length; i += CHUNK) {
-    const chunk = filteredRows.slice(i, i + CHUNK)
+  const allPayoutInserts: any[] = []
+  const allLedgerInserts: any[] = []
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const payoutInserts: any[] = []
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const ledgerInserts: any[] = []
+  // Process rows
+  for (const row of filteredRows) {
+    const lineNum = row.__lineNum
 
-    for (const row of chunk) {
-      if (source === 'shopee_income') {
-        const orderNo = String(row['No. Pesanan'] ?? '').trim()
-        if (!orderNo) continue
-
-        const calc = calcShopee(row)
-        const settlement = calc.yangDiterima
-
-        // CASE 2: retur full
-        if (settlement === 0) { returCount++; continue }
-
-        // CASE 3: beban ongkir (settlement < 0)
-        if (settlement < 0) {
-          bebanCount++
-          totalBeban += settlement
-          detailBeban.push({ orderNo, amount: settlement })
-          ledgerInserts.push({
-            walletId,
-            trxDate:  periodeFrom ? new Date(periodeFrom) : new Date(),
-            trxType:  'EXPENSE',
-            category: 'Beban Kerugian Ongkir',
-            amount:   settlement,
-            note:     `Retur Shopee - ${orderNo}`,
-            createdBy: session.username,
-          })
-          continue
-        }
-
-        // CASE 1: normal
-        if (existingSet.has(orderNo)) {
-          duplikatCount++
-          detailDuplikat.push(orderNo)
-          continue
-        }
-
-        // Parse released date
-        const rawDate = String(row['Tanggal Dana Diterima'] ?? '').trim()
-        const releasedDate = rawDate ? new Date(rawDate) : new Date()
-
-        payoutInserts.push({
-          orderNo,
-          releasedDate,
-          platform,
-          omzet:            Math.round(Math.abs(calc.omzet)),
-          platformFee:      Math.round(Math.abs(calc.biayaPlatform)),
-          amsFee:           Math.round(Math.abs(calc.biayaAms)),
-          platformFeeOther: Math.round(Math.abs(calc.biayaPlatformLainnya)),
-          bebanOngkir:      0,
-          totalIncome:      Math.round(settlement),
-          walletId,
-          source:           'shopee_income',
-          createdBy:        session.username,
-        })
-        ledgerInserts.push({
-          walletId,
-          trxDate:  releasedDate,
-          trxType:  'PAYOUT',
-          category: ledgerCat,
-          amount:   Math.round(settlement),
-          refOrderNo: orderNo,
-          note:     `Payout Shopee - ${orderNo}`,
-          createdBy: session.username,
-        })
-        normalCount++
-        totalMasuk += settlement
-
-      } else {
-        // TikTok
-        const orderNo = String(row['Order/adjustment ID'] || row['ID Pesanan/Penyesuaian'] || row['ID pesanan/penyesuaian'] || '').trim()
-        if (!orderNo) continue
-
-        const calc = calcTikTok(row)
-        const settlement = calc.yangDiterima
-
-        // CASE 2: retur full
-        if (settlement === 0) { returCount++; continue }
-
-        // CASE 3: beban ongkir
-        if (settlement < 0) {
-          bebanCount++
-          totalBeban += settlement
-          detailBeban.push({ orderNo, amount: settlement })
-          const rawSettledDate = String(row['Order settled time'] || row['Waktu penyelesaian pesanan'] || '').trim()
-          const trxDate = rawSettledDate
-            ? new Date(rawSettledDate.replace(/\//g, '-'))
-            : new Date()
-          ledgerInserts.push({
-            walletId,
-            trxDate,
-            trxType:  'EXPENSE',
-            category: 'Beban Kerugian Ongkir',
-            amount:   settlement,
-            note:     `Retur TikTok - ${orderNo}`,
-            createdBy: session.username,
-          })
-          continue
-        }
-
-        // CASE 1: normal
-        if (existingSet.has(orderNo)) {
-          duplikatCount++
-          detailDuplikat.push(orderNo)
-          continue
-        }
-
-        const rawSettledDate = String(row['Order settled time'] || row['Waktu penyelesaian pesanan'] || '').trim()
-        const releasedDate = rawSettledDate
-          ? new Date(rawSettledDate.replace(/\//g, '-'))
-          : new Date()
-
-        payoutInserts.push({
-          orderNo,
-          releasedDate,
-          platform,
-          omzet:            Math.round(Math.abs(calc.omzet)),
-          platformFee:      Math.round(Math.abs(calc.biayaPlatform)),
-          amsFee:           Math.round(Math.abs(calc.biayaAms)),
-          platformFeeOther: 0,
-          bebanOngkir:      0,
-          totalIncome:      Math.round(settlement),
-          walletId,
-          source:           'tiktok_income',
-          createdBy:        session.username,
-        })
-        ledgerInserts.push({
-          walletId,
-          trxDate:  releasedDate,
-          trxType:  'PAYOUT',
-          category: ledgerCat,
-          amount:   Math.round(settlement),
-          refOrderNo: orderNo,
-          note:     `Payout TikTok - ${orderNo}`,
-          createdBy: session.username,
-        })
-        normalCount++
-        totalMasuk += settlement
+    if (source === 'shopee_income') {
+      const orderNo = String(row['No. Pesanan'] ?? '').trim()
+      if (!orderNo) {
+        invalidRows.push({ rowNumber: lineNum, value: '-', reason: 'Tidak ada No. Pesanan' })
+        continue
       }
-    }
 
-    // Batch insert for this chunk
-    if (payoutInserts.length > 0 || ledgerInserts.length > 0) {
-      const ops = []
-      if (payoutInserts.length > 0)
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        ops.push(prisma.payout.createMany({ data: payoutInserts as any[] }))
-      if (ledgerInserts.length > 0)
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        ops.push(prisma.walletLedger.createMany({ data: ledgerInserts as any[] }))
-      await prisma.$transaction(ops)
+      const calc = calcShopee(row)
+      if (isNaN(calc.yangDiterima) || isNaN(calc.omzet)) {
+        invalidRows.push({ rowNumber: lineNum, value: orderNo, reason: 'Format numerik (jumlah/omzet) tidak valid' })
+        continue
+      }
+      const settlement = calc.yangDiterima
+
+      if (settlement === 0) { returCount++; continue }
+      if (settlement < 0) {
+        bebanCount++
+        totalBeban += settlement
+        detailBeban.push({ orderNo, amount: settlement })
+        allLedgerInserts.push({
+          walletId,
+          trxDate:  periodeFrom ? new Date(periodeFrom) : new Date(),
+          trxType:  'EXPENSE',
+          category: 'Beban Kerugian Ongkir',
+          amount:   settlement,
+          note:     `Retur Shopee - ${orderNo}`,
+          createdBy: session.username,
+        })
+        continue
+      }
+
+      if (existingSet.has(orderNo)) {
+        duplikatCount++
+        detailDuplikat.push(orderNo)
+        continue
+      }
+
+      const rawDate = String(row['Tanggal Dana Diterima'] ?? '').trim()
+      const releasedDate = rawDate ? new Date(rawDate) : new Date()
+      if (isNaN(releasedDate.getTime())) {
+        invalidRows.push({ rowNumber: lineNum, value: orderNo, reason: 'Format Tanggal Dana Diterima tidak valid' })
+        continue
+      }
+
+      allPayoutInserts.push({
+        orderNo,
+        releasedDate,
+        platform,
+        omzet:            Math.round(Math.abs(calc.omzet)),
+        platformFee:      Math.round(Math.abs(calc.biayaPlatform)),
+        amsFee:           Math.round(Math.abs(calc.biayaAms)),
+        platformFeeOther: Math.round(Math.abs(calc.biayaPlatformLainnya)),
+        bebanOngkir:      0,
+        totalIncome:      Math.round(settlement),
+        walletId,
+        source:           'shopee_income',
+        createdBy:        session.username,
+      })
+      allLedgerInserts.push({
+        walletId,
+        trxDate:  releasedDate,
+        trxType:  'PAYOUT',
+        category: ledgerCat,
+        amount:   Math.round(settlement),
+        refOrderNo: orderNo,
+        note:     `Payout Shopee - ${orderNo}`,
+        createdBy: session.username,
+      })
+      normalCount++
+      totalMasuk += settlement
+
+    } else {
+      // TikTok
+      const orderNo = String(row['Order/adjustment ID'] || row['ID Pesanan/Penyesuaian'] || row['ID pesanan/penyesuaian'] || '').trim()
+      if (!orderNo) {
+        invalidRows.push({ rowNumber: lineNum, value: '-', reason: 'Tidak ada ID Pesanan' })
+        continue
+      }
+
+      const calc = calcTikTok(row)
+      if (isNaN(calc.yangDiterima) || isNaN(calc.omzet)) {
+        invalidRows.push({ rowNumber: lineNum, value: orderNo, reason: 'Format numerik settlement/omzet tidak valid' })
+        continue
+      }
+      const settlement = calc.yangDiterima
+
+      if (settlement === 0) { returCount++; continue }
+      if (settlement < 0) {
+        bebanCount++
+        totalBeban += settlement
+        detailBeban.push({ orderNo, amount: settlement })
+        const rawSettledDate = String(row['Order settled time'] || row['Waktu penyelesaian pesanan'] || '').trim()
+        const trxDate = rawSettledDate ? new Date(rawSettledDate.replace(/\//g, '-')) : new Date()
+        allLedgerInserts.push({
+          walletId,
+          trxDate: isNaN(trxDate.getTime()) ? new Date() : trxDate,
+          trxType:  'EXPENSE',
+          category: 'Beban Kerugian Ongkir',
+          amount:   settlement,
+          note:     `Retur TikTok - ${orderNo}`,
+          createdBy: session.username,
+        })
+        continue
+      }
+
+      if (existingSet.has(orderNo)) {
+        duplikatCount++
+        detailDuplikat.push(orderNo)
+        continue
+      }
+
+      const rawSettledDate = String(row['Order settled time'] || row['Waktu penyelesaian pesanan'] || '').trim()
+      const releasedDate = rawSettledDate ? new Date(rawSettledDate.replace(/\//g, '-')) : new Date()
+      if (rawSettledDate && isNaN(releasedDate.getTime())) {
+        invalidRows.push({ rowNumber: lineNum, value: orderNo, reason: 'Waktu penyelesaian pesanan tidak valid' })
+        continue
+      }
+
+      allPayoutInserts.push({
+        orderNo,
+        releasedDate,
+        platform,
+        omzet:            Math.round(Math.abs(calc.omzet)),
+        platformFee:      Math.round(Math.abs(calc.biayaPlatform)),
+        amsFee:           Math.round(Math.abs(calc.biayaAms)),
+        platformFeeOther: 0,
+        bebanOngkir:      0,
+        totalIncome:      Math.round(settlement),
+        walletId,
+        source:           'tiktok_income',
+        createdBy:        session.username,
+      })
+      allLedgerInserts.push({
+        walletId,
+        trxDate:  releasedDate,
+        trxType:  'PAYOUT',
+        category: ledgerCat,
+        amount:   Math.round(settlement),
+        refOrderNo: orderNo,
+        note:     `Payout TikTok - ${orderNo}`,
+        createdBy: session.username,
+      })
+      normalCount++
+      totalMasuk += settlement
     }
   }
 
-  return apiSuccess({
+  // Construct summary results
+  const summaryResult = {
     platform,
     periodeFrom,
     periodeTo,
+    totalBarisData:      filteredRows.length,
     normal:              normalCount,
     retur:               returCount,
     bebanOngkir:         bebanCount,
@@ -452,7 +453,26 @@ export async function POST(request: NextRequest) {
     totalBeban:          Math.round(totalBeban),
     detailBebanOngkir:   detailBeban,
     detailDuplikat,
-  }, 201)
+    invalidRows,
+  }
+
+  if (isPreview) {
+    return apiSuccess({ isPreview: true, ...summaryResult }, 200)
+  }
+
+  // Actual execution in chunks
+  if (allPayoutInserts.length > 0 || allLedgerInserts.length > 0) {
+    for (let i = 0; i < Math.max(allPayoutInserts.length, allLedgerInserts.length); i += CHUNK) {
+      const ops = []
+      const cPayout = allPayoutInserts.slice(i, i + CHUNK)
+      const cLedger = allLedgerInserts.slice(i, i + CHUNK)
+      if (cPayout.length > 0) ops.push(prisma.payout.createMany({ data: cPayout }))
+      if (cLedger.length > 0) ops.push(prisma.walletLedger.createMany({ data: cLedger }))
+      await prisma.$transaction(ops)
+    }
+  }
+
+  return apiSuccess({ isPreview: false, ...summaryResult }, 201)
 }
 
 // ─────────────────────────────────────────────

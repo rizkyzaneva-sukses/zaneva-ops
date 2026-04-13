@@ -22,10 +22,12 @@ export async function POST(request: NextRequest) {
   if (!['OWNER', 'FINANCE', 'STAFF'].includes(session.userRole)) return apiError('Forbidden', 403)
 
   const body = await request.json()
-  const { direction, reason, items } = body
-  // items: { [sku]: qty }
+  const { direction, reason, items, itemsWithDetails } = body
+  // items: { [sku]: qty } OR itemsWithDetails: [{ sku, qty, trxDate, note }]
 
-  if (!direction || !items || Object.keys(items).length === 0) {
+  const finalItems = itemsWithDetails || items;
+
+  if (!direction || !finalItems || (Array.isArray(finalItems) ? finalItems.length === 0 : Object.keys(finalItems).length === 0)) {
     return apiError('Data scan tidak valid')
   }
 
@@ -35,7 +37,7 @@ export async function POST(request: NextRequest) {
       direction,
       reason: reason || null,
       status: 'DRAFT',
-      itemsJson: items,
+      itemsJson: finalItems,
       scannedBy: session.userId,
       createdBy: session.username,
     },

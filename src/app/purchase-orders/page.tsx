@@ -2,10 +2,10 @@
 
 import { AppLayout } from '@/components/layout/app-layout'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { formatRupiah, formatDate, downloadCSV } from '@/lib/utils'
 import { useToast } from '@/components/ui/toaster'
-import { FileText, Plus, ChevronLeft, ChevronRight, Search, Eye, FileDown, Printer, X, CreditCard } from 'lucide-react'
+import { FileText, Plus, ChevronLeft, ChevronRight, Search, Eye, FileDown, Printer, X, CreditCard, ChevronDown } from 'lucide-react'
 import { PayVendorModal } from '@/components/ui/pay-vendor-modal'
 
 const PO_STATUS_COLOR: Record<string, string> = {
@@ -13,6 +13,71 @@ const PO_STATUS_COLOR: Record<string, string> = {
 }
 const PAY_STATUS_COLOR: Record<string, string> = {
   UNPAID: 'badge-danger', PARTIAL_PAID: 'badge-warning', PAID: 'badge-success',
+}
+
+function POItemSelect({ item, products, onSelect }: { item: any; products: any[]; onSelect: (sku: string) => void }) {
+  const [open, setOpen] = useState(false)
+  const [searchQuery, setSearchQuery] = useState('')
+  const dropdownRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClick)
+    return () => document.removeEventListener('mousedown', handleClick)
+  }, [])
+
+  const selectedProduct = products.find(p => p.sku === item.sku)
+  const display = selectedProduct ? `${selectedProduct.sku} — ${selectedProduct.productName}` : 'Pilih SKU...'
+
+  const filtered = searchQuery.length > 0
+    ? products.filter(p => p.sku.toLowerCase().includes(searchQuery.toLowerCase()) || p.productName.toLowerCase().includes(searchQuery.toLowerCase())).slice(0, 50)
+    : products.slice(0, 50)
+
+  return (
+    <div className="relative flex-1" ref={dropdownRef}>
+      <button
+        type="button"
+        onClick={() => { setOpen(!open); setSearchQuery('') }}
+        className="w-full text-left bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-200 focus:outline-none flex justify-between items-center transition-colors hover:border-zinc-600"
+      >
+        <span className="truncate">{display}</span>
+        <ChevronDown size={14} className="text-zinc-500 shrink-0 ml-2" />
+      </button>
+
+      {open && (
+        <div className="absolute z-10 w-full mt-1 bg-zinc-800 border border-zinc-700 rounded-lg shadow-xl overflow-hidden">
+          <div className="p-2 border-b border-zinc-700">
+            <input
+              autoFocus
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
+              placeholder="Cari SKU atau nama produk..."
+              className="w-full bg-zinc-900 border border-zinc-700 rounded px-2.5 py-1.5 text-xs text-zinc-200 placeholder-zinc-600 focus:outline-none focus:ring-1 focus:ring-emerald-500/50"
+            />
+          </div>
+          <div className="max-h-44 overflow-y-auto divide-y divide-zinc-700/50">
+            {filtered.map(p => (
+              <button
+                key={p.sku}
+                type="button"
+                onClick={() => { onSelect(p.sku); setOpen(false) }}
+                className={`w-full text-left px-3 py-2 text-xs hover:bg-zinc-700 transition-colors ${item.sku === p.sku ? 'bg-emerald-900/30 text-emerald-300' : 'text-zinc-300'}`}
+              >
+                <span className="font-mono text-emerald-400/80 mr-1.5">{p.sku}</span>— {p.productName}
+              </button>
+            ))}
+            {filtered.length === 0 && (
+              <p className="text-center py-3 text-xs text-zinc-500">Produk tidak ditemukan</p>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  )
 }
 
 function CreatePOModal({ vendors, products, onClose }: { vendors: any[]; products: any[]; onClose: () => void }) {
@@ -91,11 +156,11 @@ function CreatePOModal({ vendors, products, onClose }: { vendors: any[]; product
             <div className="space-y-2">
               {items.map((item, i) => (
                 <div key={i} className="flex gap-2">
-                  <select value={item.sku} onChange={e => updateItem(i, 'sku', e.target.value)}
-                    className="flex-1 bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-200 focus:outline-none">
-                    <option value="">Pilih SKU</option>
-                    {products.map((p: any) => <option key={p.sku} value={p.sku}>{p.sku} — {p.productName}</option>)}
-                  </select>
+                  <POItemSelect 
+                    item={item} 
+                    products={products} 
+                    onSelect={(sku) => updateItem(i, 'sku', sku)} 
+                  />
                   <input type="number" min={1} value={item.qtyOrder} onChange={e => updateItem(i, 'qtyOrder', Number(e.target.value))}
                     className="w-24 bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-200 focus:outline-none"/>
                   {items.length > 1 && (

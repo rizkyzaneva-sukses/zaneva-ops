@@ -22,29 +22,55 @@ export async function POST(
   if (!batch) return apiError('Batch tidak ditemukan', 404)
   if (batch.status !== 'DRAFT') return apiError('Batch sudah diproses')
 
-  const items = batch.itemsJson as Record<string, number>
-  if (!items || Object.keys(items).length === 0) return apiError('Batch kosong')
+  const itemsJson = batch.itemsJson as any
+  if (!itemsJson || (Array.isArray(itemsJson) ? itemsJson.length === 0 : Object.keys(itemsJson).length === 0)) {
+    return apiError('Batch kosong')
+  }
+
+  // Parse skus based on if it's Array or Object
+  const isArray = Array.isArray(itemsJson)
+  const skus = Array.from(new Set(isArray ? itemsJson.map((x: any) => x.sku) : Object.keys(itemsJson)))
 
   // Validate all SKUs exist
-  const skus = Object.keys(items)
   const products = await prisma.masterProduct.findMany({ where: { sku: { in: skus } } })
   const foundSkus = new Set(products.map(p => p.sku))
   const missing = skus.filter(s => !foundSkus.has(s))
   if (missing.length > 0) return apiError(`SKU tidak ditemukan: ${missing.join(', ')}`)
 
-  // Create ledger entries + commit batch in transaction
-  await prisma.$transaction(async (tx) => {
-    // Create ledger entries
-    await tx.inventoryLedger.createMany({
-      data: skus.map(sku => ({
+  // Prepare ledger data
+  const ledgerData: any[] = []
+  if (isArray) {
+    for (const item of itemsJson) {
+      ledgerData.push({
+        sku: item.sku,
+        trxDate: item.trxDate ? new Date(`${item.trxDate}T12:00:00Z`) : batch.batchDate,
+        direction: batch.direction,
+        reason: (batch.reason as any) || 'ADJUSTMENT',
+        qty: parseInt(item.qty, 10),
+        batchId: batch.id,
+        note: [item.supplierName && `Supplier: ${item.supplierName}`, item.note && `Catatan: ${item.note}`].filter(Boolean).join(' - ') || null,
+        createdBy: session.username,
+      })
+    }
+  } else {
+    for (const sku of skus) {
+      ledgerData.push({
         sku,
         trxDate: batch.batchDate,
         direction: batch.direction,
         reason: (batch.reason as any) || 'ADJUSTMENT',
-        qty: items[sku],
+        qty: parseInt(itemsJson[sku] as string, 10),
         batchId: batch.id,
         createdBy: session.username,
-      })),
+      })
+    }
+  }
+
+  // Create ledger entries + commit batch in transaction
+  await prisma.$transaction(async (tx) => {
+    // Create ledger entries
+    await tx.inventoryLedger.createMany({
+      data: ledgerData,
     })
 
     // Mark batch as committed
@@ -59,7 +85,7 @@ export async function POST(
         entityType: 'InventoryScanBatch',
         action: 'COMMIT',
         entityId: batch.id,
-        afterJson: { items, direction: batch.direction, reason: batch.reason },
+        afterJson: { items: itemsJson, direction: batch.direction, reason: batch.reason },
         performedBy: session.username,
       },
     })

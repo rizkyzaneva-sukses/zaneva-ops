@@ -15,9 +15,11 @@ import {
 
 // ─── Types ───────────────────────────────────────────
 interface UploadResult {
+  isPreview?: boolean
   platform: string
   periodeFrom: string
   periodeTo: string
+  totalBarisData: number
   normal: number
   retur: number
   bebanOngkir: number
@@ -26,6 +28,7 @@ interface UploadResult {
   totalBeban: number
   detailBebanOngkir: { orderNo: string; amount: number }[]
   detailDuplikat: string[]
+  invalidRows: { rowNumber: number; value: string; reason: string }[]
 }
 
 interface PlatformStats {
@@ -105,6 +108,7 @@ export default function PayoutsPage() {
   const [tiktokModal,   setTiktokModal]   = useState(false)
   const [modalWallet,   setModalWallet]   = useState('')
   const [uploadResult,  setUploadResult]  = useState<UploadResult | null>(null)
+  const [pendingPayload, setPendingPayload] = useState<any>(null)
 
   const limit = 50
 
@@ -207,10 +211,14 @@ export default function PayoutsPage() {
     setImporting(true)
     setShopeeModal(false)
     try {
+      if (!file.name.endsWith('.xlsx') && !file.name.endsWith('.xls')) {
+        throw new Error('Format file harus Excel (.xlsx)')
+      }
+
       const buffer = await file.arrayBuffer()
       const wb     = XLSX.read(buffer, { type: 'array' })
       const ws     = wb.Sheets['Income']
-      if (!ws) { toast({ title: 'Sheet "Income" tidak ditemukan', type: 'error' }); return }
+      if (!ws) { throw new Error('Sheet "Income" tidak ditemukan') }
 
       const raw = XLSX.utils.sheet_to_json<unknown[]>(ws, { header: 1, defval: 0 }) as unknown[][]
       const periodeFrom = String((raw[1] as unknown[])[1] ?? '')
@@ -221,25 +229,33 @@ export default function PayoutsPage() {
         Object.fromEntries(headers.map((h, i) => [h, (r as unknown[])[i] ?? 0]))
       )
 
+      const payload = {
+        source: 'shopee_income',
+        rawRows: rows,
+        walletId: modalWallet,
+        periodeFrom,
+        periodeTo,
+      }
+
       const res = await fetch('/api/payouts', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          source: 'shopee_income',
-          rawRows: rows,
-          walletId: modalWallet,
-          periodeFrom,
-          periodeTo,
-        }),
+        body: JSON.stringify({ ...payload, isPreview: true }),
       })
       const json = await res.json()
       if (res.ok) {
         setUploadResult(json.data as UploadResult)
-        qc.invalidateQueries({ queryKey: ['payouts'] })
-        qc.invalidateQueries({ queryKey: ['payouts-summary'] })
-        qc.invalidateQueries({ queryKey: ['wallets'] })
+        setPendingPayload(payload)
+        const result = json.data
+        if (result.invalidRows.length > 0 || result.duplikat > 0) {
+          toast({ title: 'Ada baris gagal/duplikat. Cek Preview.', type: 'info' })
+        } else if (result.normal === 0 && result.retur === 0 && result.bebanOngkir === 0) {
+          toast({ title: 'Tidak ada data valid', type: 'error' })
+        } else {
+          toast({ title: 'File siap diimport', type: 'success' })
+        }
       } else {
-        toast({ title: json.error ?? 'Gagal upload', type: 'error' })
+        toast({ title: json.error ?? 'Gagal membaca file', type: 'error' })
       }
     } catch (err) {
       toast({ title: `Error: ${err instanceof Error ? err.message : 'Gagal baca file'}`, type: 'error' })
@@ -257,6 +273,10 @@ export default function PayoutsPage() {
     setImporting(true)
     setTiktokModal(false)
     try {
+      if (!file.name.endsWith('.xlsx') && !file.name.endsWith('.xls') && !file.name.endsWith('.csv')) {
+        throw new Error('Format file harus Excel (.xlsx) atau CSV')
+      }
+
       const buffer = await file.arrayBuffer()
       const wb     = XLSX.read(buffer, { type: 'array' })
 
@@ -275,26 +295,34 @@ export default function PayoutsPage() {
       }
 
       const ws = wb.Sheets['Order details']
-      if (!ws) { toast({ title: 'Sheet "Order details" tidak ditemukan', type: 'error' }); return }
+      if (!ws) { throw new Error('Sheet "Order details" tidak ditemukan') }
       const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(ws, { defval: 0 })
+
+      const payload = {
+        source: 'tiktok_income',
+        rawRows: rows,
+        walletId: modalWallet,
+        periodeFrom,
+        periodeTo,
+      }
 
       const res = await fetch('/api/payouts', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          source: 'tiktok_income',
-          rawRows: rows,
-          walletId: modalWallet,
-          periodeFrom,
-          periodeTo,
-        }),
+        body: JSON.stringify({ ...payload, isPreview: true }),
       })
       const json = await res.json()
       if (res.ok) {
         setUploadResult(json.data as UploadResult)
-        qc.invalidateQueries({ queryKey: ['payouts'] })
-        qc.invalidateQueries({ queryKey: ['payouts-summary'] })
-        qc.invalidateQueries({ queryKey: ['wallets'] })
+        setPendingPayload(payload)
+        const result = json.data
+        if (result.invalidRows.length > 0 || result.duplikat > 0) {
+          toast({ title: 'Ada baris gagal/duplikat. Cek Preview.', type: 'info' })
+        } else if (result.normal === 0 && result.retur === 0 && result.bebanOngkir === 0) {
+          toast({ title: 'Tidak ada data valid', type: 'error' })
+        } else {
+          toast({ title: 'File siap diimport', type: 'success' })
+        }
       } else {
         toast({ title: json.error ?? 'Gagal upload', type: 'error' })
       }
@@ -306,6 +334,33 @@ export default function PayoutsPage() {
       setModalWallet('')
     }
   }, [modalWallet, qc, toast])
+
+  const confirmImport = async () => {
+    if (!pendingPayload) return
+    setImporting(true)
+    try {
+      const res = await fetch('/api/payouts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...pendingPayload, isPreview: false })
+      })
+      const json = await res.json()
+      if (res.ok) {
+        setUploadResult(json.data) // Updated result without isPreview, meaning Success!
+        setPendingPayload(null)
+        toast({ title: 'Import berhasil!', type: 'success' })
+        qc.invalidateQueries({ queryKey: ['payouts'] })
+        qc.invalidateQueries({ queryKey: ['payouts-summary'] })
+        qc.invalidateQueries({ queryKey: ['wallets'] })
+      } else {
+        toast({ title: json.error || 'Gagal import', type: 'error' })
+      }
+    } catch (err: any) {
+      toast({ title: err.message, type: 'error' })
+    } finally {
+      setImporting(false)
+    }
+  }
 
   // ── Render ───────────────────────────────────────────
   return (
@@ -706,28 +761,31 @@ export default function PayoutsPage() {
       )}
 
       {/* ══════════════════════════════════════════
-          MODAL: Hasil Upload
+          MODAL: Hasil Upload / Preview
       ══════════════════════════════════════════ */}
       {uploadResult && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-          <div className="bg-zinc-900 border border-zinc-700 rounded-2xl shadow-2xl w-full max-w-md mx-4 max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between px-5 py-4 border-b border-zinc-800">
+          <div className="bg-zinc-900 border border-zinc-700 rounded-2xl shadow-xl w-full max-w-lg mx-4 max-h-[90vh] flex flex-col">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-zinc-800 shrink-0">
               <h3 className="text-sm font-semibold text-white">
-                Hasil Upload Payout {uploadResult.platform}
+                {uploadResult.isPreview ? `Review Preview: Payout ${uploadResult.platform}` : `Berhasil Import: Payout ${uploadResult.platform}`}
               </h3>
-              <button onClick={() => setUploadResult(null)} className="text-zinc-500 hover:text-zinc-300">
+              <button onClick={() => { setUploadResult(null); setPendingPayload(null) }} className="text-zinc-500 hover:text-zinc-300">
                 <X size={16} />
               </button>
             </div>
 
-            <div className="px-5 py-4 space-y-4">
+            <div className="px-5 py-4 space-y-4 overflow-y-auto flex-1">
               {/* Periode */}
-              {uploadResult.periodeFrom && (
-                <p className="text-xs text-zinc-500">
-                  Periode: <span className="text-zinc-300">{uploadResult.periodeFrom}</span>
-                  {' – '}
-                  <span className="text-zinc-300">{uploadResult.periodeTo}</span>
-                </p>
+              {(uploadResult.periodeFrom || uploadResult.totalBarisData > 0) && (
+                <div className="flex justify-between items-center bg-zinc-800/40 px-3 py-2 rounded-lg">
+                  <p className="text-xs text-zinc-400">
+                    Periode: <b className="text-zinc-200">{uploadResult.periodeFrom || '?'}</b> s/d <b className="text-zinc-200">{uploadResult.periodeTo || '?'}</b>
+                  </p>
+                  <p className="text-xs font-semibold text-emerald-400 border border-emerald-900 bg-emerald-950/30 px-2 py-0.5 rounded">
+                    Total: {uploadResult.totalBarisData} Baris
+                  </p>
+                </div>
               )}
 
               {/* Counts */}
@@ -742,39 +800,57 @@ export default function PayoutsPage() {
                 </div>
                 <div className="bg-zinc-800/60 rounded-lg px-3 py-2.5">
                   <p className="text-[10px] text-zinc-500 mb-0.5">⚠ Beban Ongkir</p>
-                  <p className="text-base font-bold text-red-400">{uploadResult.bebanOngkir} order</p>
+                  <p className="text-base font-bold text-orange-400">{uploadResult.bebanOngkir} order</p>
                 </div>
                 <div className="bg-zinc-800/60 rounded-lg px-3 py-2.5">
-                  <p className="text-[10px] text-zinc-500 mb-0.5">⊘ Duplikat</p>
-                  <p className="text-base font-bold text-yellow-400">{uploadResult.duplikat} order</p>
+                  <p className="text-[10px] text-zinc-500 mb-0.5">⊘ Duplikat / Gagal</p>
+                  <p className="text-base font-bold text-red-500">{(uploadResult.duplikat || 0) + (uploadResult.invalidRows?.length || 0)} baris</p>
                 </div>
               </div>
 
               {/* Totals */}
               <div className="border border-zinc-800 rounded-xl overflow-hidden">
                 <div className="flex justify-between items-center px-4 py-2.5 border-b border-zinc-800">
-                  <span className="text-xs text-zinc-500">Total Masuk</span>
+                  <span className="text-xs text-zinc-500">Potensi Masuk (Normal)</span>
                   <span className="text-sm font-semibold text-emerald-400">
                     +{formatRupiah(uploadResult.totalMasuk)}
                   </span>
                 </div>
                 <div className="flex justify-between items-center px-4 py-2.5">
-                  <span className="text-xs text-zinc-500">Total Beban</span>
-                  <span className="text-sm font-semibold text-red-400">
+                  <span className="text-xs text-zinc-500">Potensi Beban Kerugian Ongkir</span>
+                  <span className="text-sm font-semibold text-orange-400">
                     {formatRupiah(uploadResult.totalBeban)}
                   </span>
                 </div>
               </div>
+              
+              {/* Detail Gagal (Invalid Rows) */}
+              {uploadResult.invalidRows && uploadResult.invalidRows.length > 0 && (
+                <div>
+                  <p className="text-xs font-semibold text-red-400 mb-2 flex items-center gap-1.5"><AlertTriangle size={13}/> Data Gagal Format ({uploadResult.invalidRows.length}):</p>
+                  <div className="space-y-1.5 max-h-36 overflow-y-auto bg-red-950/20 border border-red-900/30 p-2 rounded-lg">
+                    {uploadResult.invalidRows.map((inv, idx) => (
+                      <div key={idx} className="text-xs flex gap-2">
+                        <span className="font-mono text-zinc-500 shrink-0">Row {inv.rowNumber}:</span>
+                        <div className="flex flex-col">
+                          <span className="text-zinc-300">{inv.value}</span>
+                          <span className="text-red-400 text-[10px]">{inv.reason}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               {/* Detail Beban Ongkir */}
               {uploadResult.detailBebanOngkir.length > 0 && (
                 <div>
-                  <p className="text-xs text-zinc-500 mb-2">Detail Beban Ongkir:</p>
-                  <div className="space-y-1 max-h-36 overflow-y-auto">
+                  <p className="text-xs text-zinc-500 mb-2">Detail Beban Kerugian Ongkir:</p>
+                  <div className="space-y-1 max-h-32 overflow-y-auto border border-zinc-800 p-1.5 rounded-lg">
                     {uploadResult.detailBebanOngkir.map(d => (
-                      <div key={d.orderNo} className="flex justify-between items-center text-xs px-3 py-1.5 bg-red-950/30 rounded-lg">
+                      <div key={d.orderNo} className="flex justify-between items-center text-xs px-2 py-1 bg-zinc-800/40 rounded">
                         <span className="font-mono text-zinc-400">{d.orderNo}</span>
-                        <span className="text-red-400">{formatRupiah(d.amount)}</span>
+                        <span className="text-orange-400">{formatRupiah(d.amount)}</span>
                       </div>
                     ))}
                   </div>
@@ -784,21 +860,40 @@ export default function PayoutsPage() {
               {/* Detail Duplikat */}
               {uploadResult.detailDuplikat.length > 0 && (
                 <div>
-                  <p className="text-xs text-zinc-500 mb-2">Duplikat dilewati ({uploadResult.detailDuplikat.length}):</p>
-                  <div className="text-[11px] text-zinc-600 font-mono bg-zinc-800/50 rounded-lg px-3 py-2 max-h-24 overflow-y-auto">
+                  <p className="text-xs text-zinc-500 mb-2">Duplikat Database, akan dilewati ({uploadResult.detailDuplikat.length}):</p>
+                  <div className="text-[11px] text-zinc-500 font-mono bg-zinc-800/30 border border-zinc-800/60 rounded-lg px-3 py-2 max-h-24 overflow-y-auto leading-relaxed">
                     {uploadResult.detailDuplikat.join(', ')}
                   </div>
                 </div>
               )}
             </div>
 
-            <div className="px-5 py-4 border-t border-zinc-800 flex justify-end">
-              <button
-                onClick={() => setUploadResult(null)}
-                className="px-5 py-2 text-sm font-medium bg-zinc-700 hover:bg-zinc-600 text-white rounded-lg transition-colors"
-              >
-                Tutup
-              </button>
+            <div className="px-5 py-4 border-t border-zinc-800 flex justify-end gap-2 shrink-0">
+              {uploadResult.isPreview ? (
+                <>
+                  <button
+                    onClick={() => { setUploadResult(null); setPendingPayload(null) }}
+                    className="px-4 py-2 text-sm text-zinc-400 hover:text-zinc-200"
+                  >
+                    Batal
+                  </button>
+                  <button
+                    onClick={confirmImport}
+                    disabled={importing || (uploadResult.normal === 0 && uploadResult.bebanOngkir === 0)}
+                    className="flex items-center gap-2 px-5 py-2 text-sm font-medium bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg transition-colors disabled:opacity-50"
+                  >
+                    {importing ? <Loader2 size={15} className="animate-spin" /> : <Upload size={15} />}
+                    Konfirmasi Import
+                  </button>
+                </>
+              ) : (
+                <button
+                  onClick={() => { setUploadResult(null); setPendingPayload(null) }}
+                  className="px-5 py-2 text-sm font-medium bg-zinc-700 hover:bg-zinc-600 text-white rounded-lg transition-colors"
+                >
+                  Tutup
+                </button>
+              )}
             </div>
           </div>
         </div>

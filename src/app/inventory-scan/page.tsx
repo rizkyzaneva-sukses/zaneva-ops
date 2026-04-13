@@ -7,15 +7,23 @@ import { useToast } from '@/components/ui/toaster'
 import { ScanLine, Plus, Minus, CheckCircle, Trash2, Upload, Search, X, AlertCircle } from 'lucide-react'
 import Papa from 'papaparse'
 
-type TabKey = 'masuk' | 'keluar' | 'retur'
+type TabKey = 'masuk' | 'keluar' | 'retur' | 'retur_pembelian'
 
 const SCAN_TABS: { key: TabKey; label: string; direction: 'IN' | 'OUT'; reason: string }[] = [
   { key: 'masuk',   label: 'Scan Masuk',   direction: 'IN',  reason: 'PURCHASE' },
   { key: 'keluar',  label: 'Scan Keluar',  direction: 'OUT', reason: 'SALES' },
   { key: 'retur',   label: 'Scan Retur',   direction: 'IN',  reason: 'RETURN_SALES' },
+  { key: 'retur_pembelian', label: 'Retur Pembelian', direction: 'OUT', reason: 'RETURN_PURCHASE' }
 ]
 
-interface ScanItem { sku: string; productName: string; qty: number }
+interface ScanItem { 
+  sku: string; 
+  productName: string; 
+  qty: number;
+  trxDate?: string;
+  supplierName?: string;
+  note?: string;
+}
 
 interface ReturOrder {
   orderId: string
@@ -389,6 +397,13 @@ export default function InventoryScanPage() {
   const lockRef = useRef(false)
   const fileRef = useRef<HTMLInputElement>(null)
 
+  // Form states specifically for Retur Pembelian manual input
+  const [rpDate, setRpDate] = useState(new Date().toISOString().split('T')[0])
+  const [rpSupplier, setRpSupplier] = useState('')
+  const [rpReason, setRpReason] = useState('')
+  const [rpNote, setRpNote] = useState('')
+  const [rpQty, setRpQty] = useState(1)
+
   const tab = SCAN_TABS.find(t => t.key === activeTab)!
 
   // Load all products for lookup
@@ -427,6 +442,18 @@ export default function InventoryScanPage() {
 
     setLookupError('')
     setItems(prev => {
+      if (activeTab === 'retur_pembelian') {
+        beep(1)
+        return [...prev, { 
+          sku: product.sku, 
+          productName: product.productName, 
+          qty: rpQty,
+          trxDate: rpDate,
+          supplierName: rpSupplier,
+          note: [rpReason, rpNote].filter(Boolean).join(' - ')
+        }]
+      }
+
       const existing = prev.find(i => i.sku === product.sku)
       if (existing) {
         beep(1)
@@ -436,10 +463,15 @@ export default function InventoryScanPage() {
       return [...prev, { sku: product.sku, productName: product.productName, qty: 1 }]
     })
     setSkuInput('')
-  }, [productsData])
+    setRpQty(1)
+  }, [productsData, activeTab, rpQty, rpDate, rpSupplier, rpReason, rpNote])
 
   const handleSkuSubmit = (e: React.FormEvent) => {
     e.preventDefault()
+    if (activeTab === 'retur_pembelian' && !rpDate) {
+      setLookupError('Tanggal retur wajib diisi')
+      return
+    }
     if (skuInput.trim()) addItem(skuInput)
   }
 
@@ -465,8 +497,27 @@ export default function InventoryScanPage() {
           const qtyVal = row['QTY'] || row['QUANTITY'] || row['JUMLAH'] || row['Qty'] || '1'
           const qty = parseInt(qtyVal, 10)
           const product = findProduct(prodVal)
+
+          let trxDate = ''
+          if (activeTab === 'retur_pembelian') {
+            const trxDateVal = (row['TANGGAL_RETUR'] || row['Tanggal Retur'] || row['TANGGAL RETUR'] || '').trim()
+            if (!trxDateVal) { failed++; return }
+            if (trxDateVal.includes('/')) {
+              const parts = trxDateVal.split('/')
+              if (parts[2] && parts[2].length === 4) {
+                 trxDate = `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`
+              }
+            } else {
+               trxDate = trxDateVal
+            }
+          }
+
           if (!product || isNaN(qty) || qty <= 0) { failed++; return }
+
           setItems(prev => {
+            if (activeTab === 'retur_pembelian') {
+               return [...prev, { sku: product.sku, productName: product.productName, qty, trxDate }]
+            }
             const ex = prev.find(i => i.sku === product.sku)
             if (ex) return prev.map(i => i.sku === product.sku ? { ...i, qty: i.qty + qty } : i)
             return [...prev, { sku: product.sku, productName: product.productName, qty }]
@@ -490,7 +541,13 @@ export default function InventoryScanPage() {
         body: JSON.stringify({
           direction: tab.direction,
           reason: tab.reason,
-          items: Object.fromEntries(items.map(i => [i.sku, i.qty])),
+          itemsWithDetails: items.map(i => ({ 
+            sku: i.sku, 
+            qty: i.qty, 
+            trxDate: i.trxDate, 
+            supplierName: i.supplierName, 
+            note: i.note 
+          })),
         }),
       })
       const batchData = await batchRes.json()
@@ -567,24 +624,101 @@ export default function InventoryScanPage() {
                 {tab.direction === 'IN' ? '📥' : '📤'} {tab.label}
               </p>
 
-              {/* SKU Input */}
-              <form onSubmit={handleSkuSubmit} className="flex gap-2 mb-3">
-                <div className="relative flex-1">
-                  <ScanLine size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" />
-                  <input
-                    ref={skuRef}
-                    value={skuInput}
-                    onChange={e => setSkuInput(e.target.value)}
-                    placeholder="Scan / ketik SKU atau nama produk..."
-                    className={`w-full bg-zinc-800 border rounded-lg pl-8 pr-3 py-2.5 text-sm text-zinc-200 placeholder-zinc-600 focus:outline-none focus:ring-2 transition-colors ${
-                      lookupError ? 'border-red-700 focus:ring-red-500/50' : 'border-zinc-700 focus:ring-emerald-500/50'
-                    }`}
-                  />
-                </div>
-                <button type="submit" className="bg-emerald-700 hover:bg-emerald-600 text-white rounded-lg px-4 py-2 text-sm font-medium transition-colors">
-                  Tambah
-                </button>
-              </form>
+              {/* Pilihan Form Input */}
+              {activeTab === 'retur_pembelian' ? (
+                <form onSubmit={handleSkuSubmit} className="space-y-3 mb-3">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                        <label className="block text-xs text-zinc-500 mb-1">SKU / Nama Produk</label>
+                        <div className="relative">
+                          <ScanLine size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" />
+                          <input
+                            ref={skuRef}
+                            value={skuInput}
+                            onChange={e => setSkuInput(e.target.value)}
+                            placeholder="Scan/ketik SKU..."
+                            className={`w-full bg-zinc-800 border rounded-lg pl-8 pr-3 py-2 text-sm text-zinc-200 placeholder-zinc-600 focus:outline-none focus:ring-2 transition-colors ${
+                              lookupError ? 'border-red-700 focus:ring-red-500/50' : 'border-zinc-700 focus:ring-emerald-500/50'
+                            }`}
+                          />
+                        </div>
+                    </div>
+                    <div>
+                        <label className="block text-xs text-zinc-500 mb-1">QTY Retur</label>
+                        <input
+                          type="number" min={1}
+                          value={rpQty}
+                          onChange={e => setRpQty(Math.max(1, parseInt(e.target.value) || 1))}
+                          className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-200 focus:outline-none focus:ring-2 focus:ring-emerald-500/50"
+                        />
+                    </div>
+                  </div>
+                  <div>
+                      <label className="block text-xs text-zinc-500 mb-1">Tanggal Retur (Fisik) *</label>
+                      <input
+                          type="date"
+                          value={rpDate}
+                          onChange={e => setRpDate(e.target.value)}
+                          className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-200 focus:outline-none focus:ring-2 focus:ring-emerald-500/50"
+                          required
+                      />
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                      <div>
+                          <label className="block text-xs text-zinc-500 mb-1">Supplier (Opsional)</label>
+                          <input
+                            value={rpSupplier}
+                            onChange={e => setRpSupplier(e.target.value)}
+                            placeholder="Nama supplier..."
+                            className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-200 focus:outline-none focus:ring-2 focus:ring-emerald-500/50"
+                          />
+                      </div>
+                      <div>
+                          <label className="block text-xs text-zinc-500 mb-1">Alasan Retur (Opsional)</label>
+                          <select 
+                            value={rpReason}
+                            onChange={e => setRpReason(e.target.value)}
+                            className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-200 focus:outline-none focus:ring-2 focus:ring-emerald-500/50"
+                          >
+                           <option value="">-- Pilih --</option>
+                           <option value="Cacat Produksi">Cacat Produksi</option>
+                           <option value="Salah Kirim">Salah Kirim</option>
+                           <option value="Expired">Expired</option>
+                          </select>
+                      </div>
+                  </div>
+                  <div>
+                      <label className="block text-xs text-zinc-500 mb-1">Keterangan / Catatan Tambahan</label>
+                      <input
+                          value={rpNote}
+                          onChange={e => setRpNote(e.target.value)}
+                          placeholder="Nomor resi balik, dsb..."
+                          className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-200 focus:outline-none focus:ring-2 focus:ring-emerald-500/50"
+                      />
+                  </div>
+                  <button type="submit" className="w-full bg-emerald-700 hover:bg-emerald-600 text-white rounded-lg px-4 py-2 text-sm font-medium transition-colors mt-2">
+                    Tambah ke Daftar Retur
+                  </button>
+                </form>
+              ) : (
+                <form onSubmit={handleSkuSubmit} className="flex gap-2 mb-3">
+                  <div className="relative flex-1">
+                    <ScanLine size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" />
+                    <input
+                      ref={skuRef}
+                      value={skuInput}
+                      onChange={e => setSkuInput(e.target.value)}
+                      placeholder="Scan / ketik SKU atau nama produk..."
+                      className={`w-full bg-zinc-800 border rounded-lg pl-8 pr-3 py-2.5 text-sm text-zinc-200 placeholder-zinc-600 focus:outline-none focus:ring-2 transition-colors ${
+                        lookupError ? 'border-red-700 focus:ring-red-500/50' : 'border-zinc-700 focus:ring-emerald-500/50'
+                      }`}
+                    />
+                  </div>
+                  <button type="submit" className="bg-emerald-700 hover:bg-emerald-600 text-white rounded-lg px-4 py-2 text-sm font-medium transition-colors">
+                    Tambah
+                  </button>
+                </form>
+              )}
 
               {lookupError && (
                 <p className="text-red-400 text-xs mb-2 bg-red-900/20 border border-red-900 rounded px-3 py-2">{lookupError}</p>
@@ -599,7 +733,7 @@ export default function InventoryScanPage() {
                 >
                   <Upload size={12} /> Upload CSV
                 </button>
-                <span className="text-zinc-700 text-xs">Format: PRODUK, QTY</span>
+                <span className="text-zinc-700 text-xs">Format: PRODUK, QTY{activeTab === 'retur_pembelian' && ', TANGGAL_RETUR'}</span>
               </div>
             </div>
 
@@ -642,10 +776,13 @@ export default function InventoryScanPage() {
             ) : (
               <div className="divide-y divide-zinc-800 max-h-96 overflow-y-auto">
                 {items.map(item => (
-                  <div key={item.sku} className="flex items-center gap-3 px-4 py-3">
+                  <div key={item.sku + (item.trxDate || '')} className="flex items-center gap-3 px-4 py-3">
                     <div className="flex-1 min-w-0">
                       <p className="text-sm text-zinc-200 truncate">{item.productName}</p>
                       <p className="text-[10px] font-mono text-zinc-600">{item.sku}</p>
+                      {activeTab === 'retur_pembelian' && (
+                        <p className="text-[10px] text-zinc-500 mt-1">Tanggal: {item.trxDate} {item.supplierName ? `| Supplier: ${item.supplierName}` : ''}</p>
+                      )}
                     </div>
                     <div className="flex items-center gap-1.5">
                       <button onClick={() => updateQty(item.sku, -1)} className="w-6 h-6 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-400 flex items-center justify-center transition-colors">
