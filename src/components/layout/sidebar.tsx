@@ -57,6 +57,8 @@ const NAV_ITEMS: NavItem[] = [
     roles: ['OWNER', 'FINANCE'],
     children: [
       { href: '/finance', label: 'Wallet & Ledger', icon: Wallet, roles: ['OWNER', 'FINANCE'] },
+      { href: '/aset-tetap', label: 'Aset Tetap', icon: Package, roles: ['OWNER', 'FINANCE'] },
+      { href: '/modal-awal', label: 'Modal Awal', icon: Database, roles: ['OWNER'] },
       { href: '/payouts', label: 'Payout', icon: TrendingUp, roles: ['OWNER', 'FINANCE'] },
       { href: '/utang-piutang', label: 'Utang & Piutang', icon: CreditCard, roles: ['OWNER', 'FINANCE'] },
       { href: '/reports', label: 'Laporan', icon: BarChart3, roles: ['OWNER', 'FINANCE'] },

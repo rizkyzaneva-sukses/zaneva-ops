@@ -81,6 +81,9 @@ enum WalletTrxType {
   OTHER_INCOME
   EXPENSE
   TRANSFER
+  MODAL_MASUK
+  PRIVE
+  INVESTASI
 }
 
 enum MasterCategoryType {
@@ -373,13 +376,15 @@ model Wallet {
   name        String    @unique
   isActive    Boolean   @default(true) @map("is_active")
 
-  ledgerEntries     WalletLedger[]
-  payouts           Payout[]
-  vendorPayments    VendorPayment[]
-  utangs            Utang[]
-  utangPayments     UtangPayment[]
-  piutangs          Piutang[]
+  ledgerEntries      WalletLedger[]
+  payouts            Payout[]
+  vendorPayments     VendorPayment[]
+  utangs             Utang[]
+  utangPayments      UtangPayment[]
+  piutangs           Piutang[]
   piutangCollections PiutangCollection[]
+  asetTetap          AsetTetap[]
+  modalAwal          ModalAwal?
 
   @@map("wallets")
 }
@@ -735,4 +740,62 @@ model AuditLog {
   @@index([entityId])
   @@index([createdAt])
   @@map("audit_logs")
+}
+
+// ─────────────────────────────────────────────
+// 25. MasterExpenseCategory
+// ─────────────────────────────────────────────
+model MasterExpenseCategory {
+  id          String   @id @default(cuid())
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  name        String   @unique
+  group       String
+  isActive    Boolean  @default(true) @map("is_active")
+  isSystem    Boolean  @default(false) @map("is_system")
+
+  @@index([group])
+  @@map("master_expense_categories")
+}
+
+// ─────────────────────────────────────────────
+// 26. AsetTetap
+// ─────────────────────────────────────────────
+model AsetTetap {
+  id                 String    @id @default(cuid())
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
+  createdBy          String?   @map("created_by")
+
+  namaAset           String    @map("nama_aset")
+  nilaiPerolehan     Int       @map("nilai_perolehan")
+  tanggalBeli        DateTime  @map("tanggal_beli")
+  umurEkonomisThn    Int       @map("umur_ekonomis_thn")
+  isActive           Boolean   @default(true) @map("is_active")
+  walletId           String?   @map("wallet_id")
+  note               String?
+
+  wallet             Wallet?   @relation(fields: [walletId], references: [id])
+
+  @@index([isActive])
+  @@map("aset_tetap")
+}
+
+// ─────────────────────────────────────────────
+// 27. ModalAwal
+// ─────────────────────────────────────────────
+model ModalAwal {
+  id            String   @id @default(cuid())
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  walletId      String   @unique @map("wallet_id")
+  jumlah        Int
+  tanggalSetup  DateTime @map("tanggal_setup")
+  note          String?
+
+  wallet        Wallet   @relation(fields: [walletId], references: [id])
+
+  @@map("modal_awal")
 }

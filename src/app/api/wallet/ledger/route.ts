@@ -92,8 +92,11 @@ export async function POST(request: NextRequest) {
     return apiSuccess({ message: 'Transfer berhasil' }, 201)
   }
 
-  // For EXPENSE, amount should be negative
-  const finalAmount = trxType === 'EXPENSE' ? -Math.abs(amount) : Math.abs(amount)
+  // Tentukan tanda amount berdasarkan tipe transaksi
+  // Negatif (keluar wallet): EXPENSE, PRIVE, INVESTASI
+  // Positif (masuk wallet): PAYOUT, OTHER_INCOME, MODAL_MASUK
+  const outTypes = ['EXPENSE', 'PRIVE', 'INVESTASI']
+  const finalAmount = outTypes.includes(trxType) ? -Math.abs(amount) : Math.abs(amount)
 
   const entry = await prisma.walletLedger.create({
     data: {
