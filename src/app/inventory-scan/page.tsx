@@ -404,11 +404,14 @@ export default function InventoryScanPage() {
   const [skuInput, setSkuInput] = useState('')
   const [lookupError, setLookupError] = useState('')
   const [showSuggest, setShowSuggest] = useState(false)
+  const [suggestResults, setSuggestResults] = useState<any[]>([])
+  const [suggestLoading, setSuggestLoading] = useState(false)
   const [committing, setCommitting] = useState(false)
   const [committed, setCommitted] = useState(false)
   const skuRef = useRef<HTMLInputElement>(null)
   const lockRef = useRef(false)
   const fileRef = useRef<HTMLInputElement>(null)
+  const suggestDebounce = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // Form states specifically for Retur Pembelian manual input
   const [rpDate, setRpDate] = useState(new Date().toISOString().split('T')[0])
@@ -419,14 +422,29 @@ export default function InventoryScanPage() {
 
   const tab = SCAN_TABS.find(t => t.key === activeTab)!
 
-  // Load all products for lookup
+  // Load products for barcode lookup (large limit so direct scan always works)
   const { data: productsData } = useQuery({
     queryKey: ['products-all'],
     queryFn: async () => {
-      const res = await fetch('/api/products?limit=500&isActive=true')
+      const res = await fetch('/api/products?limit=2000&isActive=true')
       return res.json().then(d => d.data?.products ?? [])
     },
   })
+
+  // Live search suggest via API
+  const fetchSuggest = useCallback((q: string) => {
+    if (suggestDebounce.current) clearTimeout(suggestDebounce.current)
+    if (!q || q.length < 2) { setSuggestResults([]); return }
+    suggestDebounce.current = setTimeout(async () => {
+      setSuggestLoading(true)
+      try {
+        const res = await fetch(`/api/products/search?q=${encodeURIComponent(q)}&limit=15`)
+        const json = await res.json()
+        setSuggestResults(json.data ?? [])
+      } catch { setSuggestResults([]) }
+      finally { setSuggestLoading(false) }
+    }, 200)
+  }, [])
 
   const productMap = new Map(
     (productsData ?? []).map((p: any) => [p.sku.toLowerCase(), p])
@@ -648,7 +666,7 @@ export default function InventoryScanPage() {
                           <input
                             ref={skuRef}
                             value={skuInput}
-                            onChange={e => { setSkuInput(e.target.value); setShowSuggest(true) }}
+                            onChange={e => { setSkuInput(e.target.value); setShowSuggest(true); fetchSuggest(e.target.value) }}
                             onBlur={() => setTimeout(() => setShowSuggest(false), 200)}
                             placeholder="Scan/ketik SKU..."
                             className={`w-full bg-zinc-800 border rounded-lg pl-8 pr-3 py-2 text-sm text-zinc-200 placeholder-zinc-600 focus:outline-none focus:ring-2 transition-colors ${
@@ -657,23 +675,23 @@ export default function InventoryScanPage() {
                           />
                           {showSuggest && skuInput.length >= 2 && (
                              <div className="absolute top-full left-0 z-20 w-full mt-1 max-h-48 overflow-y-auto bg-zinc-800 border border-zinc-700 rounded-lg shadow-xl divide-y divide-zinc-700/50 custom-scrollbar">
-                               {(productsData ?? [])
-                                 .filter((p: any) => p.sku.toLowerCase().includes(skuInput.toLowerCase()) || p.productName.toLowerCase().includes(skuInput.toLowerCase()))
-                                 .slice(0, 15)
-                                 .map((p: any) => (
-                                   <button
-                                     key={p.sku}
-                                     type="button"
-                                     onMouseDown={(e) => {
-                                       e.preventDefault()
-                                       setSkuInput(p.sku)
-                                       setShowSuggest(false)
-                                     }}
-                                     className="w-full text-left px-3 py-2.5 text-xs hover:bg-zinc-700 transition-colors flex flex-col justify-center"
-                                   >
-                                      <div className="truncate"><span className="font-mono text-emerald-400 mr-2">{p.sku}</span><span className="text-zinc-200">{p.productName}</span></div>
-                                   </button>
-                                 ))}
+                               {suggestLoading && <p className="text-center py-3 text-xs text-zinc-500 animate-pulse">Mencari...</p>}
+                               {!suggestLoading && suggestResults.map((p: any) => (
+                                 <button
+                                   key={p.sku}
+                                   type="button"
+                                   onMouseDown={(e) => {
+                                     e.preventDefault()
+                                     setSkuInput(p.sku)
+                                     setShowSuggest(false)
+                                     setSuggestResults([])
+                                   }}
+                                   className="w-full text-left px-3 py-2.5 text-xs hover:bg-zinc-700 transition-colors flex flex-col justify-center"
+                                 >
+                                   <div className="truncate"><span className="font-mono text-emerald-400 mr-2">{p.sku}</span><span className="text-zinc-200">{p.productName}</span></div>
+                                 </button>
+                               ))}
+                               {!suggestLoading && suggestResults.length === 0 && <p className="text-center py-3 text-xs text-zinc-500">Produk tidak ditemukan</p>}
                              </div>
                           )}
                         </div>
@@ -742,7 +760,7 @@ export default function InventoryScanPage() {
                     <input
                       ref={skuRef}
                       value={skuInput}
-                      onChange={e => { setSkuInput(e.target.value); setShowSuggest(true) }}
+                      onChange={e => { setSkuInput(e.target.value); setShowSuggest(true); fetchSuggest(e.target.value) }}
                       onBlur={() => setTimeout(() => setShowSuggest(false), 200)}
                       placeholder="Scan / ketik SKU atau nama produk..."
                       className={`w-full bg-zinc-800 border rounded-lg pl-8 pr-3 py-2.5 text-sm text-zinc-200 placeholder-zinc-600 focus:outline-none focus:ring-2 transition-colors ${
@@ -751,24 +769,24 @@ export default function InventoryScanPage() {
                     />
                     {showSuggest && skuInput.length >= 2 && (
                        <div className="absolute top-full left-0 z-20 w-full mt-1 max-h-48 overflow-y-auto bg-zinc-800 border border-zinc-700 rounded-lg shadow-xl divide-y divide-zinc-700/50 custom-scrollbar">
-                         {(productsData ?? [])
-                           .filter((p: any) => p.sku.toLowerCase().includes(skuInput.toLowerCase()) || p.productName.toLowerCase().includes(skuInput.toLowerCase()))
-                           .slice(0, 15)
-                           .map((p: any) => (
-                             <button
-                               key={p.sku}
-                               type="button"
-                               onMouseDown={(e) => {
-                                 e.preventDefault()
-                                 setSkuInput('')
-                                 setShowSuggest(false)
-                                 addItem(p.sku)
-                               }}
-                               className="w-full text-left px-3 py-2.5 text-xs hover:bg-zinc-700 transition-colors flex flex-col justify-center"
-                             >
-                                <div className="truncate"><span className="font-mono text-emerald-400 mr-2">{p.sku}</span><span className="text-zinc-200">{p.productName}</span></div>
-                             </button>
-                           ))}
+                         {suggestLoading && <p className="text-center py-3 text-xs text-zinc-500 animate-pulse">Mencari...</p>}
+                         {!suggestLoading && suggestResults.map((p: any) => (
+                           <button
+                             key={p.sku}
+                             type="button"
+                             onMouseDown={(e) => {
+                               e.preventDefault()
+                               setSkuInput('')
+                               setShowSuggest(false)
+                               setSuggestResults([])
+                               addItem(p.sku)
+                             }}
+                             className="w-full text-left px-3 py-2.5 text-xs hover:bg-zinc-700 transition-colors flex flex-col justify-center"
+                           >
+                             <div className="truncate"><span className="font-mono text-emerald-400 mr-2">{p.sku}</span><span className="text-zinc-200">{p.productName}</span></div>
+                           </button>
+                         ))}
+                         {!suggestLoading && suggestResults.length === 0 && <p className="text-center py-3 text-xs text-zinc-500">Produk tidak ditemukan</p>}
                        </div>
                     )}
                   </div>
