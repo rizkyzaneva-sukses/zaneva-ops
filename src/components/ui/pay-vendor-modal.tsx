@@ -40,7 +40,7 @@ export function PayVendorModal({ prefillVendorId, prefillPoId, onClose, onSucces
   // Fetch wallets
   const { data: wallets } = useQuery({
     queryKey: ['wallets-active'],
-    queryFn: () => fetch('/api/wallet').then(r => r.json()).then(d => d.data?.wallets ?? []),
+    queryFn: () => fetch('/api/wallet').then(r => r.json()).then(d => d.data ?? []),
   })
 
   // Fetch POs untuk vendor yang dipilih (hanya yang belum lunas)
