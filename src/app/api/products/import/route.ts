@@ -29,9 +29,6 @@ export async function POST(request: NextRequest) {
 
       // Check duplicate SKU
       const existing = await prisma.masterProduct.findUnique({ where: { sku: sku.toString().trim() } })
-      if (existing) {
-        throw new Error(`SKU "${sku}" sudah terdaftar`)
-      }
 
       let categoryId = null
       let matchedCategoryName = null
@@ -50,20 +47,38 @@ export async function POST(request: NextRequest) {
         matchedCategoryName = cat.categoryName
       }
 
-      await prisma.masterProduct.create({
-        data: {
-          sku: sku.toString().trim().toUpperCase(),
-          productName: productName.toString().trim(),
-          categoryId,
-          categoryName: matchedCategoryName,
-          unit: unit || 'pcs',
-          hpp: Number(hpp) || 0,
-          rop: Number(rop) || 0,
-          leadTimeDays: Number(leadTimeDays) || 0,
-          stokAwal: Number(stokAwal) || 0,
-          createdBy: session.username,
-        },
-      })
+      if (existing) {
+        // Update data jika SKU sudah ada
+        await prisma.masterProduct.update({
+          where: { id: existing.id },
+          data: {
+            productName: productName?.toString().trim() || existing.productName,
+            ...(categoryId && { categoryId }),
+            ...(matchedCategoryName && { categoryName: matchedCategoryName }),
+            unit: unit || existing.unit,
+            hpp: hpp !== undefined && hpp !== '' ? Number(hpp) : existing.hpp,
+            rop: rop !== undefined && rop !== '' ? Number(rop) : existing.rop,
+            leadTimeDays: leadTimeDays !== undefined && leadTimeDays !== '' ? Number(leadTimeDays) : existing.leadTimeDays,
+            stokAwal: stokAwal !== undefined && stokAwal !== '' ? Number(stokAwal) : existing.stokAwal,
+          }
+        })
+      } else {
+        // Buat baru jika belum ada
+        await prisma.masterProduct.create({
+          data: {
+            sku: sku.toString().trim().toUpperCase(),
+            productName: productName.toString().trim(),
+            categoryId,
+            categoryName: matchedCategoryName,
+            unit: unit || 'pcs',
+            hpp: Number(hpp) || 0,
+            rop: Number(rop) || 0,
+            leadTimeDays: Number(leadTimeDays) || 0,
+            stokAwal: Number(stokAwal) || 0,
+            createdBy: session.username,
+          },
+        })
+      }
       successCount++
     } catch (err: any) {
       errorCount++

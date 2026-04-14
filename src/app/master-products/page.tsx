@@ -297,17 +297,33 @@ export default function MasterProductsPage() {
   const total = data?.total ?? 0
   const totalPages = Math.ceil(total / limit)
 
-  const handleExport = () => {
-    downloadCSV('master-produk.csv', products.map((p: any) => ({
-      SKU: p.sku,
-      'Nama Produk': p.productName,
-      Satuan: p.unit,
-      HPP: p.hpp,
-      ROP: p.rop,
-      'Lead Time (hari)': p.leadTimeDays,
-      Kategori: p.categoryName || '',
-      Status: p.isActive ? 'Aktif' : 'Nonaktif',
-    })))
+  const [exporting, setExporting] = useState(false)
+
+  const handleExport = async () => {
+    setExporting(true)
+    toast({ title: 'Menyiapkan file ekspor...', type: 'success' })
+    try {
+      const res = await fetch('/api/products?limit=100000')
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.error || 'Failed to export')
+      
+      const allProducts = json.data?.products || []
+      downloadCSV('master-produk-all.csv', allProducts.map((p: any) => ({
+        sku: p.sku,
+        productName: p.productName,
+        categoryName: p.categoryName || '',
+        unit: p.unit,
+        hpp: p.hpp,
+        rop: p.rop,
+        leadTimeDays: p.leadTimeDays,
+        stokAwal: p.stokAwal,
+      })))
+      toast({ title: 'Export berhasil', type: 'success' })
+    } catch (err: any) {
+      toast({ title: err.message, type: 'error' })
+    } finally {
+      setExporting(false)
+    }
   }
 
   const handleDeleteSelected = async () => {
@@ -367,8 +383,8 @@ export default function MasterProductsPage() {
           Master Produk
         </h1>
         <div className="flex gap-2">
-          <button onClick={handleExport} className="flex items-center gap-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-lg px-3 py-2 text-sm transition-colors border border-zinc-700">
-            <Download size={14} /> Export
+          <button onClick={handleExport} disabled={exporting} className="flex items-center gap-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-lg px-3 py-2 text-sm transition-colors border border-zinc-700 disabled:opacity-50">
+            {exporting ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />} Export All
           </button>
           <button onClick={() => setModal('import')} className="flex items-center gap-2 bg-zinc-800 hover:bg-zinc-700 text-blue-400 rounded-lg px-3 py-2 text-sm transition-colors border border-zinc-700 font-medium">
             <Upload size={14} /> Import CSV
