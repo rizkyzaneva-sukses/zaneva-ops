@@ -1,10 +1,9 @@
-import { db } from '@/lib/db'
-import { NextResponse } from 'next/server'
-import { getServerSession } from 'next-auth'
+import { prisma } from '@/lib/prisma'
+import { NextResponse, NextRequest } from 'next/server'
 
-export async function GET(req: Request) {
+export async function GET(req: NextRequest) {
   try {
-    const revs = await db.suggestRevision.findMany({
+    const revs = await prisma.suggestRevision.findMany({
       orderBy: { createdAt: 'desc' }
     })
     return NextResponse.json({ data: revs })
@@ -13,7 +12,7 @@ export async function GET(req: Request) {
   }
 }
 
-export async function POST(req: Request) {
+export async function POST(req: NextRequest) {
   try {
     const body = await req.json()
     const { title, description, imagesBase64 } = body
@@ -22,7 +21,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Title is required' }, { status: 400 })
     }
 
-    const rev = await db.suggestRevision.create({
+    const rev = await prisma.suggestRevision.create({
       data: {
         title,
         description,
@@ -37,7 +36,7 @@ export async function POST(req: Request) {
   }
 }
 
-export async function PATCH(req: Request) {
+export async function PATCH(req: NextRequest) {
   try {
     const body = await req.json()
     const { id, status } = body
@@ -46,7 +45,7 @@ export async function PATCH(req: Request) {
       return NextResponse.json({ error: 'Missing id or status' }, { status: 400 })
     }
 
-    const res = await db.suggestRevision.update({
+    const res = await prisma.suggestRevision.update({
       where: { id },
       data: { status }
     })
@@ -57,13 +56,13 @@ export async function PATCH(req: Request) {
   }
 }
 
-export async function DELETE(req: Request) {
+export async function DELETE(req: NextRequest) {
   try {
     const url = new URL(req.url)
     const id = url.searchParams.get('id')
     if (!id) return NextResponse.json({ error: 'Missing id' }, { status: 400 })
 
-    await db.suggestRevision.delete({
+    await prisma.suggestRevision.delete({
       where: { id }
     })
     return NextResponse.json({ success: true })
