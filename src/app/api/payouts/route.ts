@@ -266,7 +266,7 @@ export async function POST(request: NextRequest) {
   let filteredRows: any[] = []
   
   if (source === 'tiktok_income') {
-    filteredRows = mappedRows.filter(r => {
+    filteredRows = mappedRows.filter((r: any) => {
       const typeStr = String(r['Type'] || r['Jenis'] || r['Tipe'] || '').trim()
       // If TikTok data has a type column, filter only "Order". If no type column, accept all and let validations handle it.
       if (!('Type' in r) && !('Jenis' in r) && !('Tipe' in r)) return true
