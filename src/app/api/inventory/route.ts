@@ -64,6 +64,9 @@ export async function GET(request: NextRequest) {
   })
 
   const filtered = belowRop ? result.filter(p => p.isBelowRop) : result
+  
+  // Natural sort on backend as default
+  filtered.sort((a, b) => a.sku.localeCompare(b.sku, undefined, { numeric: true, sensitivity: 'base' }))
 
   return apiSuccess({
     products: filtered,

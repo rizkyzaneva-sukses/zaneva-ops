@@ -28,16 +28,17 @@ export async function GET(request: NextRequest) {
     ...(isActive !== null && isActive !== '' && { isActive: isActive === 'true' }),
   }
 
-  const [products, total] = await Promise.all([
-    prisma.masterProduct.findMany({
-      where,
-      include: { category: true },
-      orderBy: { sku: 'asc' },
-      skip,
-      take,
-    }),
-    prisma.masterProduct.count({ where }),
-  ])
+  // Fetch all to allow natural sorting before pagination
+  const allProducts = await prisma.masterProduct.findMany({
+    where,
+    include: { category: true },
+  })
+
+  // Natural sort by SKU
+  allProducts.sort((a, b) => a.sku.localeCompare(b.sku, undefined, { numeric: true, sensitivity: 'base' }))
+
+  const total = allProducts.length
+  const products = allProducts.slice(skip, skip + take)
 
   return apiSuccess({ products, total, skip, take })
 }
