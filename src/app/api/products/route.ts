@@ -83,7 +83,7 @@ export async function POST(request: NextRequest) {
   return apiSuccess(product, 201)
 }
 
-// DELETE /api/products
+// DELETE /api/products — soft delete (set isActive = false)
 export async function DELETE(request: NextRequest) {
   const session = await getSession()
   if (!session.isLoggedIn) return apiError('Unauthorized', 401)
@@ -94,12 +94,13 @@ export async function DELETE(request: NextRequest) {
     const { ids } = body
     if (!ids || !Array.isArray(ids)) return apiError('Parameter ids tidak valid')
 
-    const result = await prisma.masterProduct.deleteMany({
-      where: { id: { in: ids } }
+    const result = await prisma.masterProduct.updateMany({
+      where: { id: { in: ids } },
+      data: { isActive: false },
     })
 
-    return apiSuccess({ message: `${result.count} produk berhasil dihapus` })
+    return apiSuccess({ message: `${result.count} produk berhasil dinonaktifkan` })
   } catch (err: any) {
-    return apiError(err.message || 'Gagal menghapus produk', 500)
+    return apiError(err.message || 'Gagal menonaktifkan produk', 500)
   }
 }

@@ -3,7 +3,7 @@
 import { AppLayout } from '@/components/layout/app-layout'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState, useRef } from 'react'
-import { formatRupiah, formatDate, downloadCSV } from '@/lib/utils'
+import { formatRupiah, formatDate } from '@/lib/utils'
 import { useToast } from '@/components/ui/toaster'
 import { usePermission, useAuth } from '@/components/providers'
 import Papa from 'papaparse'
@@ -11,7 +11,7 @@ import * as XLSX from 'xlsx'
 import {
   ShoppingCart, Upload, Download, Search,
   RefreshCw, ChevronLeft, ChevronRight, CheckCircle2,
-  Loader2, AlertCircle, Trash, X
+  Loader2, AlertCircle, Trash, X, CalendarRange
 } from 'lucide-react'
 
 const STATUS_GROUPS = [
@@ -41,6 +41,124 @@ interface ImportResult {
   message: string
 }
 
+// ── Export Modal ─────────────────────────────────────
+function ExportModal({
+  defaultFrom, defaultTo, defaultPlatform,
+  onClose,
+}: {
+  defaultFrom: string; defaultTo: string; defaultPlatform: string
+  onClose: () => void
+}) {
+  const { toast } = useToast()
+  const [mode,    setMode]    = useState<'order_date' | 'payout_date'>('order_date')
+  const [from,    setFrom]    = useState(defaultFrom)
+  const [to,      setTo]      = useState(defaultTo)
+  const [loading, setLoading] = useState(false)
+
+  const handleDownload = async () => {
+    setLoading(true)
+    try {
+      const params = new URLSearchParams({ mode })
+      if (from) params.set('dateFrom', from)
+      if (to)   params.set('dateTo',   to)
+      if (defaultPlatform) params.set('platform', defaultPlatform)
+
+      const res = await fetch(`/api/orders/export?${params}`)
+      if (!res.ok) throw new Error('Gagal export data')
+      const blob = await res.blob()
+      const url  = URL.createObjectURL(blob)
+      const a    = document.createElement('a')
+      a.href     = url
+      a.download = `orders-${mode}-${new Date().toISOString().slice(0, 10)}.csv`
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      URL.revokeObjectURL(url)
+      onClose()
+    } catch (err: any) {
+      toast({ title: err.message || 'Gagal export', type: 'error' })
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+      <div className="bg-zinc-900 border border-zinc-700 rounded-2xl w-full max-w-sm shadow-2xl">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-zinc-800">
+          <h2 className="text-sm font-semibold text-white flex items-center gap-2">
+            <Download size={15} className="text-emerald-400" /> Download Pesanan
+          </h2>
+          <button onClick={onClose} className="text-zinc-500 hover:text-zinc-300"><X size={16} /></button>
+        </div>
+        <div className="px-5 py-4 space-y-4">
+          <p className="text-xs text-zinc-500">Pilih berdasarkan:</p>
+
+          {/* Mode selector */}
+          <div className="space-y-2">
+            {[
+              { val: 'order_date',  label: 'Tanggal Order', desc: 'Filter berdasarkan tanggal order dibuat' },
+              { val: 'payout_date', label: 'Tanggal Pencairan', desc: 'Semua order yang order_no-nya cair di range ini' },
+            ].map(opt => (
+              <label key={opt.val} className={`flex items-start gap-3 p-3 rounded-xl border cursor-pointer transition-colors ${
+                mode === opt.val
+                  ? 'border-emerald-600 bg-emerald-900/20'
+                  : 'border-zinc-700 bg-zinc-800/40 hover:border-zinc-600'
+              }`}>
+                <input
+                  type="radio"
+                  name="mode"
+                  value={opt.val}
+                  checked={mode === opt.val}
+                  onChange={() => setMode(opt.val as any)}
+                  className="mt-0.5 accent-emerald-500"
+                />
+                <div>
+                  <p className="text-sm font-medium text-zinc-200">{opt.label}</p>
+                  <p className="text-xs text-zinc-500 mt-0.5">{opt.desc}</p>
+                </div>
+              </label>
+            ))}
+          </div>
+
+          {/* Date range */}
+          <div className="space-y-2">
+            <label className="block text-xs text-zinc-500">Rentang Tanggal</label>
+            <div className="flex items-center gap-2">
+              <input
+                type="date"
+                value={from}
+                onChange={e => setFrom(e.target.value)}
+                className="flex-1 bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-xs text-zinc-300 focus:outline-none focus:ring-1 focus:ring-emerald-500/50 [&::-webkit-calendar-picker-indicator]:invert-[0.6]"
+              />
+              <span className="text-zinc-600 text-xs">s/d</span>
+              <input
+                type="date"
+                value={to}
+                onChange={e => setTo(e.target.value)}
+                className="flex-1 bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-xs text-zinc-300 focus:outline-none focus:ring-1 focus:ring-emerald-500/50 [&::-webkit-calendar-picker-indicator]:invert-[0.6]"
+              />
+            </div>
+          </div>
+
+          <p className="text-xs text-zinc-600">Format: CSV · Semua data (tanpa batas baris)</p>
+        </div>
+        <div className="px-5 pb-5 flex gap-2">
+          <button onClick={onClose} disabled={loading}
+            className="flex-1 py-2.5 text-sm text-zinc-400 hover:text-white bg-zinc-800 hover:bg-zinc-700 rounded-xl transition-colors">
+            Batal
+          </button>
+          <button onClick={handleDownload} disabled={loading}
+            className="flex-1 py-2.5 text-sm font-semibold text-white bg-emerald-600 hover:bg-emerald-500 rounded-xl transition-colors disabled:opacity-50 flex items-center justify-center gap-2">
+            {loading ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
+            {loading ? 'Mengunduh...' : 'Download'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function OrdersPage() {
   const qc = useQueryClient()
   const { toast } = useToast()
@@ -57,6 +175,9 @@ export default function OrdersPage() {
   const [importing, setImporting] = useState(false)
   const [importResult, setImportResult] = useState<ImportResult | null>(null)
   
+  // Export modal
+  const [showExportModal, setShowExportModal] = useState(false)
+
   // States untuk Preview & Bulk Delete
   const [showPreview, setShowPreview] = useState(false)
   const [previewData, setPreviewData] = useState<any>(null)
@@ -99,7 +220,6 @@ export default function OrdersPage() {
       let headers: string[] = []
 
       if (ext === 'xlsx' || ext === 'xls') {
-        // Excel (Shopee biasanya xlsx)
         const buf = await file.arrayBuffer()
         const wb = XLSX.read(buf, { type: 'array' })
         const ws = wb.Sheets[wb.SheetNames[0]]
@@ -107,9 +227,7 @@ export default function OrdersPage() {
         rawRows = json
         headers = Object.keys(json[0] ?? {})
       } else {
-        // CSV (TikTok)
         const text = await file.text()
-        // TikTok CSV: comma delimiter tapi ada tab noise di value
         const cleaned = text.replace(/\t,/g, ',').replace(/"\t\s*"/g, '""').replace(/\t"/g, '"')
         await new Promise<void>((resolve, reject) => {
           Papa.parse(cleaned, {
@@ -130,7 +248,6 @@ export default function OrdersPage() {
         return
       }
 
-      // Kirim ke API dengan mode preview
       const res = await fetch('/api/orders', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -149,7 +266,6 @@ export default function OrdersPage() {
       toast({ title: `Error: ${err.message || 'Gagal memproses file'}`, type: 'error' })
     } finally {
       setImporting(false)
-      // JANGAN reset fileRef di sini agar bisa di-submit nanti
     }
   }
 
@@ -233,31 +349,18 @@ export default function OrdersPage() {
     }
   }
 
-  const handleExport = () => {
-    downloadCSV(`orders-${new Date().toISOString().slice(0, 10)}.csv`,
-      orders.map((o: any) => ({
-        'No. Pesanan': o.orderNo,
-        'Platform': o.platform,
-        'SKU': o.sku,
-        'Produk': o.productName,
-        'Qty': o.qty,
-        'Tgl Pesan': o.orderCreatedAt,
-        'No. Resi': o.airwaybill,
-        'Nama Penerima': o.receiverName,
-        'No. Telepon': o.phone,
-        'Kota': o.city,
-        'Provinsi': o.province,
-        'Status': o.status,
-        'Harga Produk': o.totalProductPrice,
-        'Real Omzet': o.realOmzet,
-        'HPP': o.hpp,
-        'Status Payout': o.payout ? 'Sudah Cair' : 'Belum Cair',
-      }))
-    )
-  }
-
   return (
     <AppLayout>
+      {/* Export Modal */}
+      {showExportModal && (
+        <ExportModal
+          defaultFrom={dateFrom}
+          defaultTo={dateTo}
+          defaultPlatform={platform}
+          onClose={() => setShowExportModal(false)}
+        />
+      )}
+
       {/* Header */}
       <div className="page-header">
         <div>
@@ -278,7 +381,10 @@ export default function OrdersPage() {
               {importing ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
               {importing ? 'Membaca...' : 'Upload File'}
             </button>
-            <button onClick={handleExport} className="flex items-center gap-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-lg px-3 py-2 text-sm transition-colors border border-zinc-700">
+            <button
+              onClick={() => setShowExportModal(true)}
+              className="flex items-center gap-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-lg px-3 py-2 text-sm transition-colors border border-zinc-700"
+            >
               <Download size={14} /> Export
             </button>
             <button onClick={() => refetch()} className="p-2 bg-zinc-900 border border-zinc-800 rounded-lg text-zinc-500 hover:text-zinc-300 transition-colors">

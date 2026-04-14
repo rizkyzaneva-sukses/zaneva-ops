@@ -1,12 +1,12 @@
 'use client'
 
 import { AppLayout } from '@/components/layout/app-layout'
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 import { downloadCSV } from '@/lib/utils'
 import { useToast } from '@/components/ui/toaster'
 import { useAuth } from '@/components/providers'
-import { Database, Plus, Download, Upload, Search, Edit2, ChevronLeft, ChevronRight, FileDown, Trash, Loader2 } from 'lucide-react'
+import { Database, Plus, Download, Upload, Search, Edit2, ChevronLeft, ChevronRight, FileDown, Trash, Loader2, X, AlertTriangle } from 'lucide-react'
 import Papa from 'papaparse'
 
 function ProductModal({ product, categories, onClose }: { product?: any; categories: any[]; onClose: () => void }) {
@@ -210,6 +210,59 @@ function ImportModal({ onClose }: { onClose: () => void }) {
   )
 }
 
+// Modal konfirmasi delete produk
+function DeleteConfirmModal({ products, onConfirm, onClose, loading }: {
+  products: any[]
+  onConfirm: () => void
+  onClose: () => void
+  loading: boolean
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
+      <div className="bg-zinc-900 border border-zinc-700 rounded-2xl w-full max-w-sm shadow-2xl">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-zinc-800">
+          <h2 className="text-sm font-bold text-white flex items-center gap-2">
+            <AlertTriangle size={15} className="text-red-400" />
+            Nonaktifkan Produk?
+          </h2>
+          <button onClick={onClose} className="text-zinc-500 hover:text-zinc-300"><X size={16} /></button>
+        </div>
+        <div className="px-5 py-4 space-y-3">
+          {products.length === 1 ? (
+            <>
+              <div className="bg-zinc-800/50 border border-zinc-700 rounded-lg px-3 py-2.5 space-y-1">
+                <p className="text-xs text-zinc-500">SKU</p>
+                <p className="text-sm font-mono text-zinc-200">{products[0].sku}</p>
+                <p className="text-xs text-zinc-500 mt-1">Nama</p>
+                <p className="text-sm text-zinc-200">{products[0].productName}</p>
+              </div>
+            </>
+          ) : (
+            <div className="bg-zinc-800/50 border border-zinc-700 rounded-lg px-3 py-2.5">
+              <p className="text-sm text-zinc-300">{products.length} produk dipilih akan dinonaktifkan.</p>
+            </div>
+          )}
+          <p className="text-xs text-zinc-500 leading-relaxed">
+            Produk akan dinonaktifkan dan tidak muncul di inventory atau pencarian SKU.{' '}
+            <span className="text-zinc-400 font-medium">Data historis (ledger, PO) tetap tersimpan.</span>
+          </p>
+        </div>
+        <div className="px-5 pb-5 flex gap-2">
+          <button onClick={onClose} disabled={loading}
+            className="flex-1 py-2.5 text-sm text-zinc-400 hover:text-white bg-zinc-800 hover:bg-zinc-700 rounded-xl transition-colors">
+            Batal
+          </button>
+          <button onClick={onConfirm} disabled={loading}
+            className="flex-1 py-2.5 text-sm font-semibold text-white bg-red-600 hover:bg-red-500 rounded-xl transition-colors disabled:opacity-50 flex items-center justify-center gap-2">
+            {loading ? <Loader2 size={14} className="animate-spin" /> : <Trash size={14} />}
+            Ya, Nonaktifkan
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function MasterProductsPage() {
   const qc = useQueryClient()
   const { toast } = useToast()
@@ -219,6 +272,7 @@ export default function MasterProductsPage() {
   const [selected, setSelected] = useState<any>(null)
   const [selectedIds, setSelectedIds] = useState<string[]>([])
   const [deleting, setDeleting] = useState(false)
+  const [showDeleteModal, setShowDeleteModal] = useState(false)
   const { user } = useAuth()
   const limit = 50
 
@@ -257,7 +311,6 @@ export default function MasterProductsPage() {
   }
 
   const handleDeleteSelected = async () => {
-    if (!confirm(`Yakin menghapus ${selectedIds.length} produk terpilih?`)) return
     setDeleting(true)
     try {
       const res = await fetch('/api/products', {
@@ -267,12 +320,13 @@ export default function MasterProductsPage() {
       })
       const json = await res.json()
       if (res.ok) {
-        toast({ title: json.data?.message || 'Produk berhasil dihapus', type: 'success' })
+        toast({ title: json.data?.message || 'Produk berhasil dinonaktifkan', type: 'success' })
         setSelectedIds([])
+        setShowDeleteModal(false)
         qc.invalidateQueries({ queryKey: ['products'] })
         qc.invalidateQueries({ queryKey: ['products-all'] })
       } else {
-        toast({ title: json.error || 'Gagal hapus', type: 'error' })
+        toast({ title: json.error || 'Gagal nonaktifkan', type: 'error' })
       }
     } catch (err: any) {
       toast({ title: `Error: ${err.message}`, type: 'error' })
@@ -280,6 +334,9 @@ export default function MasterProductsPage() {
       setDeleting(false)
     }
   }
+
+  // Produk yang dipilih (untuk modal konfirmasi)
+  const selectedProducts = products.filter((p: any) => selectedIds.includes(p.id))
 
   return (
     <AppLayout>
@@ -292,6 +349,15 @@ export default function MasterProductsPage() {
           product={modal === 'edit' ? selected : undefined}
           categories={categories ?? []}
           onClose={() => { setModal(null); setSelected(null) }}
+        />
+      )}
+
+      {showDeleteModal && selectedIds.length > 0 && (
+        <DeleteConfirmModal
+          products={selectedProducts}
+          onConfirm={handleDeleteSelected}
+          onClose={() => setShowDeleteModal(false)}
+          loading={deleting}
         />
       )}
 
@@ -329,12 +395,12 @@ export default function MasterProductsPage() {
           <div className="flex gap-2">
             <button onClick={() => setSelectedIds([])} className="text-xs text-zinc-400 hover:text-zinc-200 px-3 py-1.5">Batal</button>
             <button 
-              onClick={handleDeleteSelected} 
+              onClick={() => setShowDeleteModal(true)}
               disabled={deleting}
               className="flex items-center gap-1.5 bg-red-500/20 text-red-400 hover:bg-red-500/30 border border-red-500/30 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors"
              >
               {deleting ? <Loader2 size={12} className="animate-spin" /> : <Trash size={12} />}
-              Hapus
+              Nonaktifkan
             </button>
           </div>
         </div>

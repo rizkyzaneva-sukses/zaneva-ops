@@ -133,9 +133,11 @@ export default function InventoryPage() {
       if (typeof va === 'number' && typeof vb === 'number') {
         return sortDir === 'asc' ? va - vb : vb - va
       }
-      return sortDir === 'asc'
-        ? String(va ?? '').localeCompare(String(vb ?? ''))
-        : String(vb ?? '').localeCompare(String(va ?? ''))
+      // Natural sort for string columns (handles SKU like ELY10 < ELY11 < ELY100)
+      const aStr = String(va ?? '')
+      const bStr = String(vb ?? '')
+      const cmp = aStr.localeCompare(bStr, undefined, { numeric: true, sensitivity: 'base' })
+      return sortDir === 'asc' ? cmp : -cmp
     })
   }, [filtered, sortCol, sortDir])
 
