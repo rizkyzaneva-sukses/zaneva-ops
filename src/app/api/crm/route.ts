@@ -1,6 +1,5 @@
 import { NextRequest } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { Prisma } from '@prisma/client'
 import { getSession } from '@/lib/session'
 import { apiSuccess, apiError } from '@/lib/utils'
 
@@ -11,95 +10,94 @@ export async function GET(request: NextRequest) {
   if (!['OWNER', 'FINANCE', 'STAFF'].includes(session.userRole)) return apiError('Forbidden', 403)
 
   const { searchParams } = request.nextUrl
-  const search = searchParams.get('search') || ''
-  const platform = searchParams.get('platform') || ''
-  const page = Number(searchParams.get('page') || 1)
-  const limit = Number(searchParams.get('limit') || 30)
-  const offset = (page - 1) * limit
+  const search   = (searchParams.get('search')   || '').trim()
+  const platform = (searchParams.get('platform') || '').trim()
+  const page     = Math.max(1, Number(searchParams.get('page')  || 1))
+  const limit    = Math.max(1, Number(searchParams.get('limit') || 30))
+  const offset   = (page - 1) * limit
 
   try {
-    // Build WHERE clause safely using chained Prisma.sql (more reliable than Prisma.join)
-    let whereClause = Prisma.sql`
-      COALESCE(status, '') NOT ILIKE '%batal%'
-      AND COALESCE(status, '') NOT ILIKE '%cancel%'
-      AND COALESCE(status, '') NOT ILIKE '%dibatalkan%'
-    `
+    // ── Build dynamic WHERE parts as strings (safe — only controlled server values)
+    const conditions: string[] = [
+      // exclude cancelled orders
+      `(status IS NULL OR (
+        status NOT ILIKE '%batal%' AND
+        status NOT ILIKE '%cancel%' AND
+        status NOT ILIKE '%dibatalkan%'
+      ))`,
+    ]
+
+    const params: unknown[] = []
 
     if (search) {
-      whereClause = Prisma.sql`${whereClause} AND (
-        receiver_name ILIKE ${'%' + search + '%'}
-        OR buyer_username ILIKE ${'%' + search + '%'}
-      )`
+      params.push(`%${search}%`)
+      const idx = params.length
+      conditions.push(`(receiver_name ILIKE $${idx} OR buyer_username ILIKE $${idx})`)
     }
+
     if (platform) {
-      whereClause = Prisma.sql`${whereClause} AND platform = ${platform}`
+      params.push(platform)
+      conditions.push(`platform = $${params.length}`)
     }
 
-    const buyers = await prisma.$queryRaw<any[]>`
-      SELECT
-        COALESCE(receiver_name, buyer_username, 'Unknown') AS buyer_key,
-        MAX(buyer_username) AS buyer_username,
-        receiver_name,
-        MAX(phone) AS phone,
-        MAX(city) AS city,
-        MAX(province) AS province,
-        MAX(platform) AS platform,
-        COUNT(DISTINCT order_no) AS total_orders,
-        SUM(real_omzet) AS total_omzet,
-        MAX(order_created_at) AS last_order_date,
-        MIN(order_created_at) AS first_order_date
-      FROM orders
-      WHERE ${whereClause}
-      GROUP BY receiver_name, buyer_username
-      ORDER BY total_orders DESC
-      LIMIT ${limit} OFFSET ${offset}
-    `
+    const whereSQL = conditions.join(' AND ')
 
-    const totalResult = await prisma.$queryRaw<[{ cnt: bigint }]>`
+    // ── Main aggregate query
+    const dataParams = [...params, limit, offset]
+    const limitIdx  = params.length + 1
+    const offsetIdx = params.length + 2
+
+    const buyers: any[] = await prisma.$queryRawUnsafe(`
+      SELECT
+        COALESCE(receiver_name, buyer_username, '(Tidak Diketahui)')  AS buyer_key,
+        COALESCE(receiver_name, '(Tidak Diketahui)')                  AS receiver_name,
+        MAX(buyer_username)          AS buyer_username,
+        MAX(phone)                   AS phone,
+        MAX(city)                    AS city,
+        MAX(province)                AS province,
+        MAX(platform)                AS platform,
+        COUNT(DISTINCT order_no)     AS total_orders,
+        SUM(COALESCE(real_omzet,0))  AS total_omzet,
+        MAX(order_created_at)        AS last_order_date,
+        MIN(order_created_at)        AS first_order_date
+      FROM orders
+      WHERE ${whereSQL}
+      GROUP BY receiver_name, buyer_username
+      ORDER BY total_orders DESC, total_omzet DESC
+      LIMIT $${limitIdx} OFFSET $${offsetIdx}
+    `, ...dataParams)
+
+    // ── Count query
+    const countParams = [...params]
+    const countResult: any[] = await prisma.$queryRawUnsafe(`
       SELECT COUNT(*) AS cnt
       FROM (
         SELECT receiver_name, buyer_username
         FROM orders
-        WHERE ${whereClause}
+        WHERE ${whereSQL}
         GROUP BY receiver_name, buyer_username
-      ) grouped
-    `
+      ) g
+    `, ...countParams)
 
-    // Debug: jika 0 results, check total orders in DB
-    let debugInfo: any = undefined
-    if (buyers.length === 0) {
-      const totalCheck = await prisma.$queryRaw<[{ total: bigint; platforms: string }]>`
-        SELECT
-          COUNT(*) AS total,
-          STRING_AGG(DISTINCT COALESCE(platform, 'NULL'), ', ') AS platforms
-        FROM orders
-      `
-      const sampleStatuses = await prisma.$queryRaw<any[]>`
-        SELECT DISTINCT status, COUNT(*) as cnt
-        FROM orders
-        GROUP BY status
-        ORDER BY cnt DESC
-        LIMIT 10
-      `
-      debugInfo = {
-        totalOrdersInDb: Number(totalCheck[0]?.total ?? 0),
-        availablePlatforms: totalCheck[0]?.platforms ?? 'none',
-        statusDistribution: sampleStatuses.map(s => ({
-          status: s.status,
-          count: Number(s.cnt),
-        })),
-        filterUsed: { search, platform },
-      }
-    }
+    const total = Number(countResult[0]?.cnt ?? 0)
 
     return apiSuccess({
       buyers: buyers.map(b => ({
-        ...b,
-        totalOrders: Number(b.total_orders),
-        totalOmzet: Number(b.total_omzet),
+        buyerKey:      b.buyer_key,
+        receiverName:  b.receiver_name,
+        buyerUsername: b.buyer_username,
+        phone:         b.phone,
+        city:          b.city,
+        province:      b.province,
+        platform:      b.platform,
+        totalOrders:   Number(b.total_orders),
+        totalOmzet:    Number(b.total_omzet),
+        lastOrderDate: b.last_order_date,
+        firstOrderDate:b.first_order_date,
       })),
-      total: Number(totalResult[0]?.cnt ?? 0),
-      ...(debugInfo && { debug: debugInfo }),
+      total,
+      page,
+      limit,
     })
   } catch (error: any) {
     console.error('[CRM API Error]', error)

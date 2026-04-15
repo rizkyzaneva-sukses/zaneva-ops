@@ -89,11 +89,11 @@ export default function CRMPage() {
                   )}
                 </td></tr>
               ) : buyers.map((b: any, i: number) => (
-                <tr key={`${b.receiver_name}-${b.buyer_username}-${i}`}>
+                <tr key={`${b.receiverName}-${b.buyerUsername}-${i}`}>
                   <td className="text-zinc-600 text-xs">{(page-1)*limit + i + 1}</td>
                   <td>
                     <div className="flex items-center gap-2">
-                      <p className="text-sm text-zinc-200 font-medium">{b.receiver_name || b.buyer_username || '—'}</p>
+                      <p className="text-sm text-zinc-200 font-medium">{b.receiverName || b.buyerUsername || '—'}</p>
                       {b.totalOrders >= 3 && (
                         <span className="inline-flex items-center gap-1 text-[10px] bg-emerald-900/40 text-emerald-400 border border-emerald-800/50 px-1.5 py-0.5 rounded-full font-medium">
                           <Star size={8} className="fill-current" />
@@ -103,20 +103,20 @@ export default function CRMPage() {
                     </div>
                   </td>
                   <td>
-                    <span className="text-xs text-zinc-500 font-mono">{b.buyer_username || '—'}</span>
+                    <span className="text-xs text-zinc-500 font-mono">{b.buyerUsername || '—'}</span>
                   </td>
                   <td>
                     <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
                       b.platform === 'TikTok' ? 'bg-pink-900/30 text-pink-400' :
                       b.platform === 'Shopee' ? 'bg-orange-900/30 text-orange-400' : 'bg-zinc-800 text-zinc-400'
-                    }`}>{b.platform}</span>
+                    }`}>{b.platform || '—'}</span>
                   </td>
                   <td className="text-xs text-zinc-400">{b.city || '—'}</td>
                   <td className="text-center">
                     <span className={`text-sm font-bold ${b.totalOrders >= 3 ? 'text-emerald-400' : 'text-zinc-300'}`}>{b.totalOrders}</span>
                   </td>
                   <td className="text-right text-xs font-medium text-emerald-400">{formatRupiah(b.totalOmzet, true)}</td>
-                  <td className="text-[10px] text-zinc-500">{b.last_order_date?.slice(0,10) || '—'}</td>
+                  <td className="text-[10px] text-zinc-500">{b.lastOrderDate?.slice(0,10) || '—'}</td>
                 </tr>
               ))}
             </tbody>
