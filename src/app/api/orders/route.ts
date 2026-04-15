@@ -60,7 +60,14 @@ export async function GET(request: NextRequest) {
   } else if (statusGroup === 'terkirim') {
     statusFilter = { status: { startsWith: 'TERKIRIM' } }
   } else if (statusGroup === 'dicairkan') {
-    statusFilter = { payout: { isNot: null } }
+    // Cek order_no ada di tabel payouts (tidak bergantung pada orderId link)
+    const payoutOrderNos = await prisma.payout.findMany({
+      select: { orderNo: true },
+      where: { orderNo: { not: undefined } },
+      distinct: ['orderNo'],
+    }).then(rows => rows.map(r => r.orderNo).filter((s): s is string => typeof s === 'string' && s.length > 0))
+
+    statusFilter = { orderNo: { in: payoutOrderNos } }
   } else if (statusGroup === 'retur') {
     statusFilter = { status: 'RETUR' }
   } else if (statusGroup === 'batal') {
