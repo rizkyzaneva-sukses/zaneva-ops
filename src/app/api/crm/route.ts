@@ -64,7 +64,7 @@ export async function GET(request: NextRequest) {
       FROM orders
       WHERE ${whereSQL}
       GROUP BY receiver_name, buyer_username
-      ORDER BY total_orders DESC, total_omzet DESC
+      ORDER BY freq_orders DESC, total_omzet DESC
       LIMIT $${limitIdx} OFFSET $${offsetIdx}
     `, ...dataParams)
 
