@@ -56,7 +56,8 @@ export async function GET(request: NextRequest) {
         MAX(city)                    AS city,
         MAX(province)                AS province,
         MAX(platform)                AS platform,
-        COUNT(DISTINCT order_no)     AS total_orders,
+        COUNT(DISTINCT order_no)     AS freq_orders,
+        COUNT(*)                     AS total_items,
         SUM(COALESCE(real_omzet,0))  AS total_omzet,
         MAX(order_created_at)        AS last_order_date,
         MIN(order_created_at)        AS first_order_date
@@ -90,7 +91,8 @@ export async function GET(request: NextRequest) {
         city:          b.city,
         province:      b.province,
         platform:      b.platform,
-        totalOrders:   Number(b.total_orders),
+        freqOrders:    Number(b.freq_orders),   // jumlah order_no unik (invoice)
+        totalItems:    Number(b.total_items),    // total baris (termasuk multi-SKU)
         totalOmzet:    Number(b.total_omzet),
         lastOrderDate: b.last_order_date,
         firstOrderDate:b.first_order_date,

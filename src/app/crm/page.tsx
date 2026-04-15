@@ -57,7 +57,8 @@ export default function CRMPage() {
                 <th className="w-36">Username</th>
                 <th className="w-24">Platform</th>
                 <th className="w-28">Kota</th>
-                <th className="w-20 text-center">Orders</th>
+                <th className="w-20 text-center">Frekuensi</th>
+                <th className="w-20 text-center">Order Items</th>
                 <th className="w-28 text-right">Total Omzet</th>
                 <th className="w-28">Order Terakhir</th>
               </tr>
@@ -66,7 +67,7 @@ export default function CRMPage() {
               {isLoading ? Array.from({length:8}).map((_,i)=>(
                 <tr key={i}>{Array.from({length:8}).map((_,j)=><td key={j}><div className="h-4 bg-zinc-800 rounded animate-pulse"/></td>)}</tr>
               )) : buyers.length === 0 ? (
-                <tr><td colSpan={8} className="text-center py-12 text-zinc-600">
+                <tr><td colSpan={9} className="text-center py-12 text-zinc-600">
                   <Users size={32} className="mx-auto mb-2 opacity-30"/>
                   <p>Tidak ada data pelanggan</p>
                   {data?.debug && (
@@ -94,7 +95,7 @@ export default function CRMPage() {
                   <td>
                     <div className="flex items-center gap-2">
                       <p className="text-sm text-zinc-200 font-medium">{b.receiverName || b.buyerUsername || '—'}</p>
-                      {b.totalOrders >= 3 && (
+                      {b.freqOrders >= 2 && (
                         <span className="inline-flex items-center gap-1 text-[10px] bg-emerald-900/40 text-emerald-400 border border-emerald-800/50 px-1.5 py-0.5 rounded-full font-medium">
                           <Star size={8} className="fill-current" />
                           Repeat Buyer
@@ -112,8 +113,15 @@ export default function CRMPage() {
                     }`}>{b.platform || '—'}</span>
                   </td>
                   <td className="text-xs text-zinc-400">{b.city || '—'}</td>
+                  {/* Frekuensi = invoice unik */}
                   <td className="text-center">
-                    <span className={`text-sm font-bold ${b.totalOrders >= 3 ? 'text-emerald-400' : 'text-zinc-300'}`}>{b.totalOrders}</span>
+                    <span className={`text-sm font-bold ${b.freqOrders >= 2 ? 'text-emerald-400' : 'text-zinc-300'}`}>
+                      {b.freqOrders}x
+                    </span>
+                  </td>
+                  {/* Order Items = total baris order */}
+                  <td className="text-center">
+                    <span className="text-sm text-zinc-400">{b.totalItems}</span>
                   </td>
                   <td className="text-right text-xs font-medium text-emerald-400">{formatRupiah(b.totalOmzet, true)}</td>
                   <td className="text-[10px] text-zinc-500">{b.lastOrderDate?.slice(0,10) || '—'}</td>
