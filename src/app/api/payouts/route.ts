@@ -5,9 +5,14 @@ import { apiSuccess, apiError, getPagination } from '@/lib/utils'
 
 // ─────────────────────────────────────────────
 // Helper: safe number coercion
+// Handles: number, string (with comma thousand-sep), undefined, null
 // ─────────────────────────────────────────────
 function n(v: unknown): number {
-  const x = Number(v)
+  if (v === null || v === undefined || v === '') return 0
+  if (typeof v === 'number') return isNaN(v) ? 0 : v
+  // Remove thousand-separator commas before parsing (e.g. "1,234.56" → 1234.56)
+  const cleaned = String(v).replace(/,/g, '').trim()
+  const x = Number(cleaned)
   return isNaN(x) ? 0 : x
 }
 
@@ -337,12 +342,16 @@ export async function POST(request: NextRequest) {
   // ── For TikTok: detect which column is being used for settlement & omzet ──
   let detectedSettlementCol = '(tidak ditemukan)'
   let detectedOmzetCol = '(tidak ditemukan)'
+  let detectedSettlementRaw: unknown = undefined
+  let detectedOmzetRaw: unknown = undefined
   if (source === 'tiktok_income' && filteredRows.length > 0) {
     const sampleRow = filteredRows[0] as Record<string, unknown>
     const settlementCols = ['Total settlement amount','Total Settlement Amount','Settlement Amount','Jumlah penyelesaian','Total Penyelesaian','Jumlah Penyelesaian','Seller Settlement Amount','Jumlah Penyelesaian Penjual']
     const omzetCols = ['Total Revenue','Total Pendapatan','Total pendapatan','Seller Revenue','Pendapatan Penjual']
     detectedSettlementCol = settlementCols.find(c => sampleRow[c] !== undefined) ?? '(tidak ditemukan)'
     detectedOmzetCol = omzetCols.find(c => sampleRow[c] !== undefined) ?? '(tidak ditemukan)'
+    if (detectedSettlementCol !== '(tidak ditemukan)') detectedSettlementRaw = sampleRow[detectedSettlementCol]
+    if (detectedOmzetCol !== '(tidak ditemukan)') detectedOmzetRaw = sampleRow[detectedOmzetCol]
   }
 
   // Collect all orderNos for bulk duplicate check
@@ -469,11 +478,6 @@ export async function POST(request: NextRequest) {
       // Report as invalid so user can investigate — don't silently count as "retur"
       if (settlement === 0) {
         returCount++
-        invalidRows.push({
-          rowNumber: row.__lineNum as number,
-          value:     orderNo,
-          reason:    'Settlement = 0 (net nol, mungkin full refund atau fee = omzet)',
-        })
         continue
       }
       // TikTok: transaksi negatif MENGURANGI total pencairan (saling mengurangi dengan order positif)
@@ -580,9 +584,11 @@ export async function POST(request: NextRequest) {
     // TikTok debug: which column was used
     ...(source === 'tiktok_income' && {
       debug: {
-        settlementColumn: detectedSettlementCol,
-        omzetColumn:      detectedOmzetCol,
-        allColumns:       Object.keys((filteredRows[0] as Record<string, unknown>) ?? {}),
+        settlementColumn:   detectedSettlementCol,
+        settlementRawValue: detectedSettlementRaw,
+        omzetColumn:        detectedOmzetCol,
+        omzetRawValue:      detectedOmzetRaw,
+        allColumns:         Object.keys((filteredRows[0] as Record<string, unknown>) ?? {}),
       }
     }),
   }
