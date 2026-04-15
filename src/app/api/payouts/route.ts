@@ -66,19 +66,39 @@ interface TikTokCalc {
 }
 
 function calcTikTok(row: Record<string, unknown>): TikTokCalc {
-  const omzet = n(row['Total Revenue'] || row['Total Pendapatan'] || row['Total pendapatan'] || 0)
+  // Omzet / Revenue — berbagai format ekspor TikTok
+  const omzet =
+    n(row['Total Revenue']) ||
+    n(row['Total Pendapatan']) ||
+    n(row['Total pendapatan']) ||
+    n(row['Seller Revenue']) ||
+    n(row['Pendapatan Penjual']) ||
+    0
 
   const biayaPlatform =
     n(row['Platform commission fee'] || row['Biaya komisi platform'] || 0) +
-    n(row['Order processing fee'] || row['Biaya pemrosesan pesanan'] || 0) +
-    n(row['Dynamic commission'] || row['Komisi dinamis'] || 0) +
-    n(row['Shipping cost'] || row['Biaya pengiriman'] || 0)
+    n(row['Order processing fee']    || row['Biaya pemrosesan pesanan'] || 0) +
+    n(row['Dynamic commission']      || row['Komisi dinamis'] || 0) +
+    n(row['Shipping cost']           || row['Biaya pengiriman'] || 0) +
+    n(row['Transaction fee']         || row['Biaya transaksi'] || 0) +
+    n(row['Seller Transaction Fee']  || row['Biaya Transaksi Penjual'] || 0)
 
   const biayaAms =
-    n(row['Affiliate Commission'] || row['Komisi afiliasi'] || 0) +
+    n(row['Affiliate Commission']          || row['Komisi afiliasi'] || 0) +
     n(row['Affiliate Shop Ads commission'] || row['Komisi Iklan Toko Afiliasi'] || 0)
 
-  const yangDiterima = n(row['Total settlement amount'] || row['Total Settlement Amount'] || row['Jumlah penyelesaian'] || row['Total Penyelesaian'] || 0)
+  // Settlement amount — ini yang harus jadi totalIncome
+  // TikTok punya banyak varian nama kolom tergantung versi export
+  const yangDiterima =
+    n(row['Total settlement amount'])  ||
+    n(row['Total Settlement Amount'])  ||
+    n(row['Settlement Amount'])        ||
+    n(row['Jumlah penyelesaian'])      ||
+    n(row['Total Penyelesaian'])       ||
+    n(row['Jumlah Penyelesaian'])      ||
+    n(row['Seller Settlement Amount']) ||
+    n(row['Jumlah Penyelesaian Penjual']) ||
+    0
 
   return { omzet, biayaPlatform, biayaAms, yangDiterima }
 }
@@ -277,8 +297,19 @@ export async function POST(request: NextRequest) {
   }
 
   if (filteredRows.length === 0 && rawRows.length > 0) {
-    const cols = Object.keys(normalizedRawRows[0] || {}).slice(0, 7).join(', ')
+    const cols = Object.keys(normalizedRawRows[0] || {}).slice(0, 10).join(', ')
     return apiError(`Format file tidak sesuai atau kosong. Kolom terdeteksi: ${cols}`)
+  }
+
+  // ── For TikTok: detect which column is being used for settlement & omzet ──
+  let detectedSettlementCol = '(tidak ditemukan)'
+  let detectedOmzetCol = '(tidak ditemukan)'
+  if (source === 'tiktok_income' && filteredRows.length > 0) {
+    const sampleRow = filteredRows[0] as Record<string, unknown>
+    const settlementCols = ['Total settlement amount','Total Settlement Amount','Settlement Amount','Jumlah penyelesaian','Total Penyelesaian','Jumlah Penyelesaian','Seller Settlement Amount','Jumlah Penyelesaian Penjual']
+    const omzetCols = ['Total Revenue','Total Pendapatan','Total pendapatan','Seller Revenue','Pendapatan Penjual']
+    detectedSettlementCol = settlementCols.find(c => sampleRow[c] !== undefined) ?? '(tidak ditemukan)'
+    detectedOmzetCol = omzetCols.find(c => sampleRow[c] !== undefined) ?? '(tidak ditemukan)'
   }
 
   // Collect all orderNos for bulk duplicate check
@@ -482,7 +513,16 @@ export async function POST(request: NextRequest) {
     detailBebanOngkir:   detailBeban,
     detailDuplikat,
     invalidRows,
+    // TikTok debug: which column was used
+    ...(source === 'tiktok_income' && {
+      debug: {
+        settlementColumn: detectedSettlementCol,
+        omzetColumn:      detectedOmzetCol,
+        allColumns:       Object.keys((filteredRows[0] as Record<string, unknown>) ?? {}),
+      }
+    }),
   }
+
 
   if (isPreview) {
     return apiSuccess({ isPreview: true, ...summaryResult }, 200)
