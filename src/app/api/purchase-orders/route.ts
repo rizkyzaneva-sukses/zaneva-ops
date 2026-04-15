@@ -145,3 +145,124 @@ export async function POST(request: NextRequest) {
 
   return apiSuccess(po, 201)
 }
+
+// PATCH /api/purchase-orders — edit PO (OWNER only)
+export async function PATCH(request: NextRequest) {
+  const session = await getSession()
+  if (!session.isLoggedIn) return apiError('Unauthorized', 401)
+  if (session.userRole !== 'OWNER') return apiError('Forbidden — hanya OWNER', 403)
+
+  const body = await request.json()
+  const { id, vendorId, poDate, expectedDate, note, items } = body
+
+  if (!id) return apiError('ID PO wajib diisi')
+
+  const po = await prisma.purchaseOrder.findUnique({ where: { id }, include: { items: true } })
+  if (!po) return apiError('PO tidak ditemukan', 404)
+
+  const vendor = vendorId ? await prisma.vendor.findUnique({ where: { id: vendorId } }) : null
+  if (vendorId && !vendor) return apiError('Vendor tidak ditemukan')
+
+  // Validate new items if provided
+  let productMap = new Map<string, any>()
+  if (items?.length) {
+    const skus = items.map((i: any) => i.sku)
+    const products = await prisma.masterProduct.findMany({
+      where: { sku: { in: skus } },
+      select: { sku: true, productName: true, hpp: true },
+    })
+    productMap = new Map(products.map(p => [p.sku, p]))
+    const missing = skus.filter((s: string) => !productMap.has(s))
+    if (missing.length > 0) return apiError(`SKU tidak ditemukan: ${missing.join(', ')}`)
+  }
+
+  await prisma.$transaction(async (tx) => {
+    // Build update data
+    const updateData: any = {}
+    if (vendorId && vendor) {
+      updateData.vendorId = vendorId
+      updateData.vendorName = vendor.namaVendor
+    }
+    if (poDate) updateData.poDate = new Date(poDate)
+    if (expectedDate !== undefined) updateData.expectedDate = expectedDate ? new Date(expectedDate) : null
+    if (note !== undefined) updateData.note = note || null
+
+    if (items?.length) {
+      const totalAmount = items.reduce((sum: number, item: any) => {
+        const p = productMap.get(item.sku)!
+        return sum + (p.hpp * item.qtyOrder)
+      }, 0)
+      updateData.totalItems = items.length
+      updateData.totalQtyOrder = items.reduce((s: number, i: any) => s + i.qtyOrder, 0)
+      updateData.totalAmount = totalAmount
+
+      // Delete old items and recreate
+      await tx.purchaseOrderItem.deleteMany({ where: { poId: id } })
+      await tx.purchaseOrderItem.createMany({
+        data: items.map((item: any) => {
+          const product = productMap.get(item.sku)!
+          return {
+            poId: id,
+            poNumber: po.poNumber,
+            vendorId: vendorId || po.vendorId,
+            vendorName: vendor?.namaVendor || po.vendorName,
+            sku: item.sku,
+            productName: product.productName,
+            qtyOrder: item.qtyOrder,
+            unitPrice: product.hpp,
+          }
+        }),
+      })
+    }
+
+    await tx.purchaseOrder.update({ where: { id }, data: updateData })
+    await tx.auditLog.create({
+      data: {
+        entityType: 'PurchaseOrder',
+        action: 'UPDATE',
+        entityId: id,
+        afterJson: body,
+        performedBy: session.username,
+      },
+    })
+  })
+
+  const updated = await prisma.purchaseOrder.findUnique({
+    where: { id },
+    include: { items: true, vendor: { select: { namaVendor: true, kontak: true } } },
+  })
+  return apiSuccess(updated)
+}
+
+// DELETE /api/purchase-orders — OWNER delete / FINANCE request delete
+export async function DELETE(request: NextRequest) {
+  const session = await getSession()
+  if (!session.isLoggedIn) return apiError('Unauthorized', 401)
+  if (!['OWNER', 'FINANCE'].includes(session.userRole)) return apiError('Forbidden', 403)
+
+  const body = await request.json()
+  const { id, requestOnly } = body
+
+  if (!id) return apiError('ID PO wajib diisi')
+
+  const po = await prisma.purchaseOrder.findUnique({ where: { id } })
+  if (!po) return apiError('PO tidak ditemukan', 404)
+
+  // Finance hanya bisa request (flag note, bukan delete sungguhan)
+  if (session.userRole === 'FINANCE' || requestOnly) {
+    // Tandai dengan note khusus
+    await prisma.purchaseOrder.update({
+      where: { id },
+      data: { note: `[DELETE_REQUESTED by ${session.username}] ${po.note || ''}`.trim() },
+    })
+    return apiSuccess({ requested: true, message: `Request delete PO ${po.poNumber} berhasil dikirim ke Owner` })
+  }
+
+  // OWNER: hapus sungguhan
+  await prisma.$transaction([
+    prisma.purchaseOrderItem.deleteMany({ where: { poId: id } }),
+    prisma.purchaseOrder.delete({ where: { id } }),
+  ])
+
+  return apiSuccess({ deleted: true, message: `PO ${po.poNumber} berhasil dihapus` })
+}

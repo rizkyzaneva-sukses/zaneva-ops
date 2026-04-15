@@ -5,7 +5,8 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { formatRupiah, formatDate, downloadCSV } from '@/lib/utils'
 import { useToast } from '@/components/ui/toaster'
-import { FileText, Plus, ChevronLeft, ChevronRight, Search, Eye, FileDown, Printer, X, CreditCard, ChevronDown } from 'lucide-react'
+import { useAuth } from '@/components/providers'
+import { FileText, Plus, ChevronLeft, ChevronRight, Search, Eye, FileDown, Printer, X, CreditCard, ChevronDown, Pencil, Trash2, AlertTriangle } from 'lucide-react'
 import { PayVendorModal } from '@/components/ui/pay-vendor-modal'
 
 const PO_STATUS_COLOR: Record<string, string> = {
@@ -20,7 +21,7 @@ function POItemSelect({ item, onSelect }: { item: any; onSelect: (sku: string) =
   const [searchQuery, setSearchQuery] = useState('')
   const [suggestions, setSuggestions] = useState<any[]>([])
   const [loadingSuggest, setLoadingSuggest] = useState(false)
-  const [displayName, setDisplayName] = useState(item.sku ? item.sku : 'Pilih SKU...')
+  const [displayName, setDisplayName] = useState(item.sku ? `${item.sku}${item.productName ? ' — ' + item.productName : ''}` : 'Pilih SKU...')
   const dropdownRef = useRef<HTMLDivElement>(null)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -34,7 +35,6 @@ function POItemSelect({ item, onSelect }: { item: any; onSelect: (sku: string) =
     return () => document.removeEventListener('mousedown', handleClick)
   }, [])
 
-  // Fetch suggestions from API on keystroke with debounce
   const fetchSuggestions = useCallback((q: string) => {
     if (debounceRef.current) clearTimeout(debounceRef.current)
     if (!q.trim()) {
@@ -117,14 +117,30 @@ function POItemSelect({ item, onSelect }: { item: any; onSelect: (sku: string) =
   )
 }
 
-function CreatePOModal({ vendors, onClose }: { vendors: any[]; onClose: () => void }) {
+// ── Create / Edit PO Modal ────────────────────────────────────────
+function POFormModal({
+  vendors,
+  editPO,
+  onClose,
+}: {
+  vendors: any[]
+  editPO: any | null  // null = create mode
+  onClose: () => void
+}) {
   const qc = useQueryClient()
   const { toast } = useToast()
-  const [vendorId, setVendorId] = useState('')
-  const [poDate, setPoDate] = useState(new Date().toISOString().slice(0, 10))
-  const [expectedDate, setExpectedDate] = useState('')
-  const [note, setNote] = useState('')
-  const [items, setItems] = useState<{ sku: string; qtyOrder: number }[]>([{ sku: '', qtyOrder: 1 }])
+  const isEdit = !!editPO
+
+  const [poNumberOverride, setPoNumberOverride] = useState(isEdit ? editPO.poNumber : '')
+  const [vendorId, setVendorId] = useState(isEdit ? editPO.vendorId : '')
+  const [poDate, setPoDate] = useState(isEdit ? editPO.poDate?.slice(0, 10) : new Date().toISOString().slice(0, 10))
+  const [expectedDate, setExpectedDate] = useState(isEdit ? (editPO.expectedDate?.slice(0, 10) || '') : '')
+  const [note, setNote] = useState(isEdit ? (editPO.note || '') : '')
+  const [items, setItems] = useState<{ sku: string; productName?: string; qtyOrder: number }[]>(
+    isEdit
+      ? (editPO.items?.map((it: any) => ({ sku: it.sku, productName: it.productName, qtyOrder: it.qtyOrder })) || [{ sku: '', qtyOrder: 1 }])
+      : [{ sku: '', qtyOrder: 1 }]
+  )
   const [loading, setLoading] = useState(false)
 
   const addItem = () => setItems(p => [...p, { sku: '', qtyOrder: 1 }])
@@ -139,14 +155,28 @@ function CreatePOModal({ vendors, onClose }: { vendors: any[]; onClose: () => vo
     if (!validItems.length) { toast({ title: 'Tambah minimal 1 item', type: 'error' }); return }
     setLoading(true)
     try {
-      const res = await fetch('/api/purchase-orders', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ vendorId, poDate, expectedDate: expectedDate || null, note, items: validItems }),
-      })
+      const payload = {
+        vendorId,
+        poDate,
+        expectedDate: expectedDate || null,
+        note,
+        items: validItems.map(i => ({ sku: i.sku, qtyOrder: i.qtyOrder })),
+        ...(poNumberOverride.trim() && !isEdit ? { poNumberOverride: poNumberOverride.trim() } : {}),
+      }
+      const res = isEdit
+        ? await fetch('/api/purchase-orders', {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id: editPO.id, ...payload }),
+          })
+        : await fetch('/api/purchase-orders', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+          })
       const json = await res.json()
       if (!res.ok) throw new Error(json.error)
-      toast({ title: `PO ${json.data.poNumber} berhasil dibuat`, type: 'success' })
+      toast({ title: isEdit ? `PO berhasil diperbarui` : `PO ${json.data.poNumber} berhasil dibuat`, type: 'success' })
       qc.invalidateQueries({ queryKey: ['purchase-orders'] })
       onClose()
     } catch (err: any) {
@@ -156,10 +186,25 @@ function CreatePOModal({ vendors, onClose }: { vendors: any[]; onClose: () => vo
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-      <div className="bg-zinc-900 border border-zinc-800 rounded-2xl w-full max-w-2xl p-6 pb-8">
-        <h2 className="text-base font-semibold text-white mb-5">Buat Purchase Order</h2>
+      <div className="bg-zinc-900 border border-zinc-800 rounded-2xl w-full max-w-2xl p-6 pb-8 max-h-[92vh] overflow-y-auto">
+        <h2 className="text-base font-semibold text-white mb-5">
+          {isEdit ? `Edit PO — ${editPO.poNumber}` : 'Buat Purchase Order'}
+        </h2>
         <form onSubmit={handleSubmit} className="space-y-4">
+          {/* Row 1: No PO + Vendor */}
           <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs text-zinc-500 mb-1">
+                No. PO {!isEdit && <span className="text-zinc-600">(kosong = auto)</span>}
+              </label>
+              <input
+                value={poNumberOverride}
+                onChange={e => setPoNumberOverride(e.target.value)}
+                placeholder={isEdit ? editPO.poNumber : 'Auto-generate...'}
+                disabled={isEdit}
+                className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-200 placeholder-zinc-600 focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed"
+              />
+            </div>
             <div>
               <label className="block text-xs text-zinc-500 mb-1">Vendor *</label>
               <select value={vendorId} onChange={e => setVendorId(e.target.value)}
@@ -168,6 +213,10 @@ function CreatePOModal({ vendors, onClose }: { vendors: any[]; onClose: () => vo
                 {vendors.map(v => <option key={v.id} value={v.id}>{v.namaVendor}</option>)}
               </select>
             </div>
+          </div>
+
+          {/* Row 2: Tanggal PO + Estimasi Tiba */}
+          <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-xs text-zinc-500 mb-1">Tanggal PO *</label>
               <input type="date" value={poDate} onChange={e => setPoDate(e.target.value)}
@@ -178,13 +227,16 @@ function CreatePOModal({ vendors, onClose }: { vendors: any[]; onClose: () => vo
               <input type="date" value={expectedDate} onChange={e => setExpectedDate(e.target.value)}
                 className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-200 focus:outline-none"/>
             </div>
-            <div>
-              <label className="block text-xs text-zinc-500 mb-1">Catatan</label>
-              <input value={note} onChange={e => setNote(e.target.value)} placeholder="Opsional"
-                className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-200 placeholder-zinc-600 focus:outline-none"/>
-            </div>
           </div>
 
+          {/* Catatan */}
+          <div>
+            <label className="block text-xs text-zinc-500 mb-1">Catatan</label>
+            <input value={note} onChange={e => setNote(e.target.value)} placeholder="Opsional"
+              className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-200 placeholder-zinc-600 focus:outline-none"/>
+          </div>
+
+          {/* Items */}
           <div>
             <div className="flex items-center justify-between mb-2">
               <label className="text-xs text-zinc-500 font-medium">Items</label>
@@ -210,7 +262,7 @@ function CreatePOModal({ vendors, onClose }: { vendors: any[]; onClose: () => vo
           <div className="flex gap-2 pt-2">
             <button type="button" onClick={onClose} className="flex-1 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-lg py-2 text-sm transition-colors">Batal</button>
             <button type="submit" disabled={loading} className="flex-1 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white rounded-lg py-2 text-sm font-medium transition-colors">
-              {loading ? 'Menyimpan...' : 'Buat PO'}
+              {loading ? 'Menyimpan...' : isEdit ? 'Simpan Perubahan' : 'Buat PO'}
             </button>
           </div>
         </form>
@@ -414,13 +466,17 @@ function PrintPOModal({ po, onClose }: { po: any; onClose: () => void }) {
 
 export default function PurchaseOrdersPage() {
   const qc = useQueryClient()
+  const { user } = useAuth()
+  const { toast } = useToast()
   const [search, setSearch] = useState('')
   const [status, setStatus] = useState('')
   const [page, setPage] = useState(1)
   const [showCreate, setShowCreate] = useState(false)
+  const [editPO, setEditPO] = useState<any>(null)
   const [printPO, setPrintPO] = useState<any>(null)
   const [detailPO, setDetailPO] = useState<any>(null)
-  const [payPO, setPayPO] = useState<any>(null)  // untuk modal bayar vendor
+  const [payPO, setPayPO] = useState<any>(null)
+  const [deletingId, setDeletingId] = useState<string | null>(null)
   const limit = 20
 
   const { data, isLoading } = useQuery({
@@ -436,17 +492,16 @@ export default function PurchaseOrdersPage() {
     queryFn: () => fetch('/api/vendors?all=true').then(r => r.json()).then(d => d.data ?? []),
   })
 
-
   const pos = data?.purchaseOrders ?? []
   const total = data?.total ?? 0
   const totalPages = Math.ceil(total / limit)
 
-  const handlePrint = (po: any) => {
-    setPrintPO(po)
-  }
+  const isOwner = user?.userRole === 'OWNER'
+  const isFinance = user?.userRole === 'FINANCE'
+
+  const handlePrint = (po: any) => setPrintPO(po)
 
   const handleDownload = (po: any) => {
-    // Generate detailed item breakdown per PO as requested
     const rows = (po.items || []).map((item: any) => ({
       'Kode PO': po.poNumber,
       'SKU': item.sku,
@@ -457,6 +512,33 @@ export default function PurchaseOrdersPage() {
       'Subtotal': item.qtyOrder * item.unitPrice
     }))
     downloadCSV(`PO-${po.poNumber}.csv`, rows)
+  }
+
+  const handleDelete = async (po: any) => {
+    const isRequestOnly = isFinance
+
+    if (isRequestOnly) {
+      if (!confirm(`Request delete PO ${po.poNumber}? Owner akan dinotifikasi.`)) return
+    } else {
+      if (!confirm(`Hapus PO ${po.poNumber}? Semua item PO ini akan dihapus.`)) return
+    }
+
+    setDeletingId(po.id)
+    try {
+      const res = await fetch('/api/purchase-orders', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: po.id, requestOnly: isRequestOnly }),
+      })
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.error)
+      toast({ title: json.data.message, type: 'success' })
+      qc.invalidateQueries({ queryKey: ['purchase-orders'] })
+    } catch (err: any) {
+      toast({ title: err.message || 'Gagal', type: 'error' })
+    } finally {
+      setDeletingId(null)
+    }
   }
 
   return (
@@ -483,9 +565,14 @@ export default function PurchaseOrdersPage() {
           }}
         />
       )}
-      {showCreate && vendors && (
-        <CreatePOModal vendors={vendors} onClose={() => setShowCreate(false)} />
+      {(showCreate || editPO) && vendors && (
+        <POFormModal
+          vendors={vendors}
+          editPO={editPO}
+          onClose={() => { setShowCreate(false); setEditPO(null) }}
+        />
       )}
+
       <div className="page-header">
         <h1 className="page-title flex items-center gap-2"><FileText size={22} className="text-emerald-400"/>Purchase Orders</h1>
         <button onClick={() => setShowCreate(true)} className="flex items-center gap-2 bg-emerald-700 hover:bg-emerald-600 text-white rounded-lg px-3 py-2 text-sm font-medium transition-colors">
@@ -520,7 +607,7 @@ export default function PurchaseOrdersPage() {
                 <th className="w-28 text-right">Terbayar</th>
                 <th className="w-24">Status</th>
                 <th className="w-20 text-center">Diterima</th>
-                <th className="w-16 text-center">Aksi</th>
+                <th className="w-24 text-center">Aksi</th>
               </tr>
             </thead>
             <tbody>
@@ -528,39 +615,70 @@ export default function PurchaseOrdersPage() {
                 <tr key={i}>{Array.from({length:9}).map((_,j)=><td key={j}><div className="h-4 bg-zinc-800 rounded animate-pulse"/></td>)}</tr>
               )) : pos.length === 0 ? (
                 <tr><td colSpan={9} className="text-center py-10 text-zinc-600">Belum ada Purchase Order</td></tr>
-              ) : pos.map((po: any) => (
-                <tr key={po.id}>
-                  <td><span className="font-mono text-xs text-zinc-300">{po.poNumber}</span></td>
-                  <td><p className="text-xs text-zinc-300">{po.vendorName}</p></td>
-                  <td className="text-xs text-zinc-400">{formatDate(po.poDate)}</td>
-                  <td className="text-center text-xs text-zinc-400">{po.totalItems}</td>
-                  <td className="text-right text-xs text-zinc-300">{formatRupiah(po.totalAmount, true)}</td>
-                  <td className="text-right text-xs text-emerald-400">{formatRupiah(po.totalPaid, true)}</td>
-                  <td>
-                    <span className={PO_STATUS_COLOR[po.status] || 'badge-muted'}>{po.status}</span>
-                    <span className={`${PAY_STATUS_COLOR[po.paymentStatus] || 'badge-muted'} ml-1 text-[10px]`}>{po.paymentStatus}</span>
-                  </td>
-                  <td className="text-center"><span className="text-[10px] text-zinc-400 font-bold">{po.totalQtyReceived}/{po.totalQtyOrder}</span></td>
-                  <td>
-                    <div className="flex items-center justify-center gap-1">
-                      <button onClick={() => setDetailPO(po)} className="p-1.5 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-white transition-colors" title="Preview Detail">
-                        <Eye size={13} />
-                      </button>
-                      <button onClick={() => handlePrint(po)} className="p-1.5 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-emerald-400 transition-colors" title="Cetak PDF">
-                        <Printer size={13} />
-                      </button>
-                      <button onClick={() => handleDownload(po)} className="p-1.5 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-blue-400 transition-colors" title="Download CSV">
-                        <FileDown size={13} />
-                      </button>
-                      {po.paymentStatus !== 'PAID' && (
-                        <button onClick={() => setPayPO(po)} className="p-1.5 rounded bg-zinc-800 hover:bg-emerald-900/50 text-zinc-400 hover:text-emerald-400 transition-colors" title="Bayar Vendor">
-                          <CreditCard size={13} />
-                        </button>
+              ) : pos.map((po: any) => {
+                const isDeleteReq = po.note?.startsWith('[DELETE_REQUESTED')
+                return (
+                  <tr key={po.id} className={isDeleteReq ? 'bg-red-950/20' : ''}>
+                    <td>
+                      <span className="font-mono text-xs text-zinc-300">{po.poNumber}</span>
+                      {isDeleteReq && (
+                        <span className="ml-1.5 text-[9px] text-red-400 bg-red-900/30 border border-red-900/40 px-1.5 py-0.5 rounded font-medium">
+                          DELETE REQ
+                        </span>
                       )}
-                    </div>
-                  </td>
-                </tr>
-              ))}
+                    </td>
+                    <td><p className="text-xs text-zinc-300">{po.vendorName}</p></td>
+                    <td className="text-xs text-zinc-400">{formatDate(po.poDate)}</td>
+                    <td className="text-center text-xs text-zinc-400">{po.totalItems}</td>
+                    <td className="text-right text-xs text-zinc-300">{formatRupiah(po.totalAmount, true)}</td>
+                    <td className="text-right text-xs text-emerald-400">{formatRupiah(po.totalPaid, true)}</td>
+                    <td>
+                      <span className={PO_STATUS_COLOR[po.status] || 'badge-muted'}>{po.status}</span>
+                      <span className={`${PAY_STATUS_COLOR[po.paymentStatus] || 'badge-muted'} ml-1 text-[10px]`}>{po.paymentStatus}</span>
+                    </td>
+                    <td className="text-center"><span className="text-[10px] text-zinc-400 font-bold">{po.totalQtyReceived}/{po.totalQtyOrder}</span></td>
+                    <td>
+                      <div className="flex items-center justify-center gap-1">
+                        <button onClick={() => setDetailPO(po)} className="p-1.5 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-white transition-colors" title="Detail">
+                          <Eye size={13} />
+                        </button>
+                        <button onClick={() => handlePrint(po)} className="p-1.5 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-emerald-400 transition-colors" title="Cetak PDF">
+                          <Printer size={13} />
+                        </button>
+                        <button onClick={() => handleDownload(po)} className="p-1.5 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-blue-400 transition-colors" title="Download CSV">
+                          <FileDown size={13} />
+                        </button>
+                        {po.paymentStatus !== 'PAID' && (
+                          <button onClick={() => setPayPO(po)} className="p-1.5 rounded bg-zinc-800 hover:bg-emerald-900/50 text-zinc-400 hover:text-emerald-400 transition-colors" title="Bayar Vendor">
+                            <CreditCard size={13} />
+                          </button>
+                        )}
+                        {/* Edit — OWNER only */}
+                        {isOwner && (
+                          <button onClick={() => setEditPO(po)} className="p-1.5 rounded bg-zinc-800 hover:bg-amber-900/40 text-zinc-400 hover:text-amber-400 transition-colors" title="Edit PO">
+                            <Pencil size={13} />
+                          </button>
+                        )}
+                        {/* Delete (Owner) / Request Delete (Finance) */}
+                        {(isOwner || isFinance) && (
+                          <button
+                            onClick={() => handleDelete(po)}
+                            disabled={deletingId === po.id}
+                            className={`p-1.5 rounded transition-colors disabled:opacity-40 ${
+                              isOwner
+                                ? 'bg-zinc-800 hover:bg-red-900/40 text-zinc-400 hover:text-red-400'
+                                : 'bg-zinc-800 hover:bg-orange-900/40 text-zinc-400 hover:text-orange-400'
+                            }`}
+                            title={isOwner ? 'Hapus PO' : 'Request Delete'}
+                          >
+                            {isOwner ? <Trash2 size={13} /> : <AlertTriangle size={13} />}
+                          </button>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                )
+              })}
             </tbody>
           </table>
         </div>

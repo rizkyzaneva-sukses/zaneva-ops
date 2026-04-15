@@ -476,10 +476,10 @@ export default function InventoryScanPage() {
   const addItem = useCallback((sku: string) => {
     if (lockRef.current) return
     lockRef.current = true
-    setTimeout(() => { lockRef.current = false }, 1500)
 
     const product = findProduct(sku)
     if (!product) {
+      lockRef.current = false   // reset lock immediately on error
       setLookupError(`"${sku}" tidak ditemukan`)
       beep(3)
       setTimeout(() => setLookupError(''), 2000)
@@ -510,6 +510,7 @@ export default function InventoryScanPage() {
     })
     setSkuInput('')
     setRpQty(1)
+    setTimeout(() => { lockRef.current = false }, 400)  // reset lock after short debounce
   }, [productsData, activeTab, rpQty, rpDate, rpSupplier, rpReason, rpNote])
 
   const handleSkuSubmit = (e: React.FormEvent) => {

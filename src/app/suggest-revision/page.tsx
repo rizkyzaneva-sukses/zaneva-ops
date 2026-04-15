@@ -4,8 +4,83 @@ import { AppLayout } from '@/components/layout/app-layout'
 import { useState, useCallback } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useToast } from '@/components/ui/toaster'
-import { FileDown, Image as ImageIcon, Loader2, MessageSquarePlus, Trash2, CheckCircle, Circle, X } from 'lucide-react'
+import { Image as ImageIcon, Loader2, MessageSquarePlus, Trash2, CheckCircle, Circle, X, ChevronLeft, ChevronRight } from 'lucide-react'
 import { formatDate } from '@/lib/utils'
+
+// ── Image Lightbox ────────────────────────────────────────────────
+function ImageLightbox({
+  images,
+  startIndex,
+  onClose,
+}: {
+  images: string[]
+  startIndex: number
+  onClose: () => void
+}) {
+  const [idx, setIdx] = useState(startIndex)
+  const prev = () => setIdx(i => Math.max(0, i - 1))
+  const next = () => setIdx(i => Math.min(images.length - 1, i + 1))
+
+  // keyboard navigation
+  const handleKey = useCallback((e: React.KeyboardEvent) => {
+    if (e.key === 'ArrowLeft') prev()
+    else if (e.key === 'ArrowRight') next()
+    else if (e.key === 'Escape') onClose()
+  }, [images.length])
+
+  return (
+    <div
+      className="fixed inset-0 z-[200] flex items-center justify-center bg-black/90 backdrop-blur-sm"
+      onClick={onClose}
+      onKeyDown={handleKey}
+      tabIndex={0}
+      style={{ outline: 'none' }}
+    >
+      {/* Close */}
+      <button
+        className="absolute top-4 right-4 p-2 rounded-full bg-zinc-800/80 text-zinc-400 hover:text-white hover:bg-zinc-700 transition-colors z-10"
+        onClick={onClose}
+      >
+        <X size={20} />
+      </button>
+
+      {/* Counter */}
+      {images.length > 1 && (
+        <p className="absolute top-4 left-1/2 -translate-x-1/2 text-xs text-zinc-400 bg-zinc-800/80 px-3 py-1 rounded-full">
+          {idx + 1} / {images.length}
+        </p>
+      )}
+
+      {/* Prev */}
+      {idx > 0 && (
+        <button
+          className="absolute left-4 p-2 rounded-full bg-zinc-800/80 text-zinc-400 hover:text-white hover:bg-zinc-700 transition-colors z-10"
+          onClick={(e) => { e.stopPropagation(); prev() }}
+        >
+          <ChevronLeft size={24} />
+        </button>
+      )}
+
+      {/* Image */}
+      <img
+        src={images[idx]}
+        alt={`Attachment ${idx + 1}`}
+        className="max-w-[90vw] max-h-[90vh] rounded-xl object-contain shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      />
+
+      {/* Next */}
+      {idx < images.length - 1 && (
+        <button
+          className="absolute right-4 p-2 rounded-full bg-zinc-800/80 text-zinc-400 hover:text-white hover:bg-zinc-700 transition-colors z-10"
+          onClick={(e) => { e.stopPropagation(); next() }}
+        >
+          <ChevronRight size={24} />
+        </button>
+      )}
+    </div>
+  )
+}
 
 export default function SuggestRevisionPage() {
   const qc = useQueryClient()
@@ -16,6 +91,10 @@ export default function SuggestRevisionPage() {
   const [images, setImages] = useState<string[]>([])
   
   const [isSubmitting, setIsSubmitting] = useState(false)
+
+  // Lightbox state
+  const [lightboxImages, setLightboxImages] = useState<string[] | null>(null)
+  const [lightboxIdx, setLightboxIdx] = useState(0)
   
   const { data: revisions, isLoading } = useQuery({
     queryKey: ['revisions'],
@@ -112,11 +191,25 @@ export default function SuggestRevisionPage() {
     }
   }
 
+  const openLightbox = (imgs: string[], idx: number) => {
+    setLightboxImages(imgs)
+    setLightboxIdx(idx)
+  }
+
   const pendingRevs = revisions?.filter((r: any) => r.status === 'PENDING') || []
   const completedRevs = revisions?.filter((r: any) => r.status === 'COMPLETED') || []
 
   return (
     <AppLayout>
+      {/* Lightbox */}
+      {lightboxImages && (
+        <ImageLightbox
+          images={lightboxImages}
+          startIndex={lightboxIdx}
+          onClose={() => setLightboxImages(null)}
+        />
+      )}
+
       <div className="page-header">
         <h1 className="page-title flex items-center gap-2"><MessageSquarePlus size={22} className="text-emerald-400"/>Suggest Revision</h1>
       </div>
@@ -156,7 +249,12 @@ export default function SuggestRevisionPage() {
                 <div className="grid grid-cols-2 gap-2">
                   {images.map((img, i) => (
                     <div key={i} className="relative group rounded-md border border-zinc-700 overflow-hidden bg-zinc-800 aspect-video">
-                      <img src={img} alt="Pasted attachment" className="w-full h-full object-cover" />
+                      <img
+                        src={img}
+                        alt="Pasted attachment"
+                        className="w-full h-full object-cover cursor-pointer hover:opacity-80 transition-opacity"
+                        onClick={() => openLightbox(images, i)}
+                      />
                       <button 
                         type="button" 
                         onClick={() => removeImage(i)}
@@ -198,7 +296,7 @@ export default function SuggestRevisionPage() {
             ) : (
               <div className="space-y-3">
                 {pendingRevs.map((rev: any) => (
-                  <RevisionCard key={rev.id} rev={rev} onToggle={toggleStatus} onDelete={handleDelete} />
+                  <RevisionCard key={rev.id} rev={rev} onToggle={toggleStatus} onDelete={handleDelete} onOpenLightbox={openLightbox} />
                 ))}
               </div>
             )}
@@ -212,7 +310,7 @@ export default function SuggestRevisionPage() {
               </h3>
               <div className="space-y-3 opacity-60 hover:opacity-100 transition-opacity">
                 {completedRevs.map((rev: any) => (
-                  <RevisionCard key={rev.id} rev={rev} onToggle={toggleStatus} onDelete={handleDelete} />
+                  <RevisionCard key={rev.id} rev={rev} onToggle={toggleStatus} onDelete={handleDelete} onOpenLightbox={openLightbox} />
                 ))}
               </div>
             </div>
@@ -224,7 +322,17 @@ export default function SuggestRevisionPage() {
   )
 }
 
-function RevisionCard({ rev, onToggle, onDelete }: { rev: any, onToggle: (id: string, st: string) => void, onDelete: (id: string) => void }) {
+function RevisionCard({
+  rev,
+  onToggle,
+  onDelete,
+  onOpenLightbox,
+}: {
+  rev: any
+  onToggle: (id: string, st: string) => void
+  onDelete: (id: string) => void
+  onOpenLightbox: (imgs: string[], idx: number) => void
+}) {
   const isCompleted = rev.status === 'COMPLETED'
   return (
     <div className={`border rounded-xl p-4 transition-colors ${isCompleted ? 'border-emerald-900/30 bg-emerald-900/10' : 'border-zinc-800 bg-zinc-900 hover:border-zinc-700'}`}>
@@ -248,9 +356,18 @@ function RevisionCard({ rev, onToggle, onDelete }: { rev: any, onToggle: (id: st
           {rev.imagesBase64?.length > 0 && (
             <div className="mt-4 flex gap-2 overflow-auto pb-2 custom-scrollbar">
               {rev.imagesBase64.map((img: string, i: number) => (
-                <a key={i} href={img} target="_blank" rel="noreferrer" className="shrink-0">
-                  <img src={img} alt="Attachment" className="h-24 w-auto rounded border border-zinc-700 hover:opacity-80 transition-opacity" />
-                </a>
+                <button
+                  key={i}
+                  type="button"
+                  onClick={() => onOpenLightbox(rev.imagesBase64, i)}
+                  className="shrink-0 focus:outline-none"
+                >
+                  <img
+                    src={img}
+                    alt="Attachment"
+                    className="h-24 w-auto rounded border border-zinc-700 hover:opacity-80 hover:border-emerald-500/50 transition-all cursor-pointer"
+                  />
+                </button>
               ))}
             </div>
           )}
