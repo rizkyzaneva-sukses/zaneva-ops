@@ -254,7 +254,8 @@ export async function POST(request: NextRequest) {
   if (source !== 'shopee_income' && source !== 'tiktok_income')
     return apiError('Source tidak dikenal')
 
-  const { rawRows, periodeFrom, periodeTo, isPreview } = body
+  const { rawRows, isPreview } = body
+  let { periodeFrom, periodeTo } = body
   if (!Array.isArray(rawRows) || rawRows.length === 0)
     return apiError('Data rows kosong')
 
@@ -288,8 +289,9 @@ export async function POST(request: NextRequest) {
   if (source === 'tiktok_income') {
     filteredRows = mappedRows.filter((r: any) => {
       const typeStr = String(r['Type'] || r['Jenis'] || r['Tipe'] || '').trim()
-      // If TikTok data has a type column, filter only "Order". If no type column, accept all and let validations handle it.
+      // If TikTok data has NO type column at all, accept all rows
       if (!('Type' in r) && !('Jenis' in r) && !('Tipe' in r)) return true
+      // Accept Order/Pesanan rows only — skip Refund/Adjustment/Return rows
       return typeStr === 'Order' || typeStr === 'Pesanan'
     })
   } else {
@@ -299,6 +301,37 @@ export async function POST(request: NextRequest) {
   if (filteredRows.length === 0 && rawRows.length > 0) {
     const cols = Object.keys(normalizedRawRows[0] || {}).slice(0, 10).join(', ')
     return apiError(`Format file tidak sesuai atau kosong. Kolom terdeteksi: ${cols}`)
+  }
+
+  // ── Server-side fallback: derive periodeFrom/periodeTo from Order settled time ──
+  // This handles cases where client couldn't extract period from the file (XLSX Reports sheet missing/wrong format)
+  if (source === 'tiktok_income' && (!periodeFrom || !periodeTo)) {
+    const times: number[] = []
+    for (const row of filteredRows) {
+      const raw = String((row as Record<string, unknown>)['Order settled time'] || (row as Record<string, unknown>)['Waktu penyelesaian pesanan'] || '').trim()
+      if (raw) {
+        const d = new Date(raw.replace(/\//g, '-'))
+        if (!isNaN(d.getTime())) times.push(d.getTime())
+      }
+    }
+    if (times.length > 0) {
+      periodeFrom = new Date(Math.min(...times)).toISOString().slice(0, 10)
+      periodeTo   = new Date(Math.max(...times)).toISOString().slice(0, 10)
+    }
+  }
+  if (source === 'shopee_income' && (!periodeFrom || !periodeTo)) {
+    const times: number[] = []
+    for (const row of filteredRows) {
+      const raw = String((row as Record<string, unknown>)['Tanggal Dana Dilepaskan'] || '').trim()
+      if (raw) {
+        const d = new Date(raw)
+        if (!isNaN(d.getTime())) times.push(d.getTime())
+      }
+    }
+    if (times.length > 0) {
+      periodeFrom = new Date(Math.min(...times)).toISOString().slice(0, 10)
+      periodeTo   = new Date(Math.max(...times)).toISOString().slice(0, 10)
+    }
   }
 
   // ── For TikTok: detect which column is being used for settlement & omzet ──
@@ -432,7 +465,17 @@ export async function POST(request: NextRequest) {
       }
       const settlement = calc.yangDiterima
 
-      if (settlement === 0) { returCount++; continue }
+      // settlement === 0: order processed but net = 0 (fully offset by fees/promos)
+      // Report as invalid so user can investigate — don't silently count as "retur"
+      if (settlement === 0) {
+        returCount++
+        invalidRows.push({
+          rowNumber: row.__lineNum as number,
+          value:     orderNo,
+          reason:    'Settlement = 0 (net nol, mungkin full refund atau fee = omzet)',
+        })
+        continue
+      }
       // TikTok: transaksi negatif MENGURANGI total pencairan (saling mengurangi dengan order positif)
       // Bukan dipisah sebagai beban ongkir — sesuai cara TikTok hitung settlement batch
       if (settlement < 0) {

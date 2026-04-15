@@ -889,7 +889,7 @@ export default function PayoutsPage() {
                   <p className="text-base font-bold text-emerald-400">{uploadResult.normal} order</p>
                 </div>
                 <div className="bg-zinc-800/60 rounded-lg px-3 py-2.5">
-                  <p className="text-[10px] text-zinc-500 mb-0.5">↩ Retur (dilewati)</p>
+                  <p className="text-[10px] text-zinc-500 mb-0.5">↩ Retur / Net Nol (dilewati)</p>
                   <p className="text-base font-bold text-zinc-400">{uploadResult.retur} order</p>
                 </div>
                 <div className="bg-zinc-800/60 rounded-lg px-3 py-2.5">
