@@ -199,23 +199,26 @@ export function UtangTab() {
 
       <div className="stat-card mb-4 flex items-center justify-between">
         <div>
-          <p className="text-zinc-500 text-xs mb-1">Total {tab} Outstanding</p>
+          <p className="text-zinc-500 text-xs mb-1">{tab === 'piutang' ? 'Total Piutang' : 'Total Utang Outstanding'}</p>
           <p className={`text-2xl font-bold ${tab==='utang'?'text-red-400':'text-emerald-400'}`}>{formatRupiah(totalOutstanding, true)}</p>
         </div>
         <CreditCard size={32} className={tab==='utang'?'text-red-900':'text-emerald-900'}/>
       </div>
 
       {tab === 'piutang' && (
-        <div className="grid grid-cols-2 gap-3 mb-6">
-          <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-4">
-            <p className="text-zinc-500 text-xs mb-1">Piutang Shopee (Status Terkirim)</p>
-            <p className="text-xl font-bold text-orange-400">{formatRupiah(outstandingOrders?.shopee ?? 0, true)}</p>
-            <p className="text-zinc-600 text-[10px] mt-0.5">{outstandingOrders?.shopeeCount ?? 0} order belum cair</p>
-          </div>
-          <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-4">
-            <p className="text-zinc-500 text-xs mb-1">Piutang TikTok (Status Terkirim)</p>
-            <p className="text-xl font-bold text-cyan-400">{formatRupiah(outstandingOrders?.tiktok ?? 0, true)}</p>
-            <p className="text-zinc-600 text-[10px] mt-0.5">{outstandingOrders?.tiktokCount ?? 0} order belum cair</p>
+        <div className="mb-6">
+          <p className="text-xs text-zinc-500 font-medium mb-2">Piutang Marketplace (Belum Cair)</p>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-4">
+              <p className="text-zinc-500 text-xs mb-1">Piutang Shopee (Status Terkirim)</p>
+              <p className="text-xl font-bold text-orange-400">{formatRupiah(outstandingOrders?.shopee ?? 0, true)}</p>
+              <p className="text-zinc-600 text-[10px] mt-0.5">{outstandingOrders?.shopeeCount ?? 0} order belum cair</p>
+            </div>
+            <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-4">
+              <p className="text-zinc-500 text-xs mb-1">Piutang TikTok (Status Terkirim)</p>
+              <p className="text-xl font-bold text-cyan-400">{formatRupiah(outstandingOrders?.tiktok ?? 0, true)}</p>
+              <p className="text-zinc-600 text-[10px] mt-0.5">{outstandingOrders?.tiktokCount ?? 0} order belum cair</p>
+            </div>
           </div>
         </div>
       )}
@@ -233,8 +236,8 @@ export function UtangTab() {
               <tr key={i}>{Array.from({length: user?.userRole==='OWNER'?8:7}).map((_,j) => <td key={j}><div className="h-4 bg-zinc-800 rounded animate-pulse"/></td>)}</tr>
             )) : items.length===0 ? (
               <tr><td colSpan={user?.userRole==='OWNER'?8:7} className="text-center py-10 text-zinc-600">Tidak ada data {tab}</td></tr>
-            ) : items.map((item:any) => {
-              const paid = tab==='utang'?item.amountPaid:item.amountCollected
+            ) : tab === 'utang' ? items.map((item:any) => {
+              const paid = item.amountPaid
               const sisa = item.amount - paid
               return (
                 <tr key={item.id}>
@@ -245,7 +248,7 @@ export function UtangTab() {
                   <td><span className="text-xs text-zinc-400">{item.type?.replace(/_/g,' ')}</span></td>
                   <td className="text-right text-xs text-zinc-300">{formatRupiah(item.amount, true)}</td>
                   <td className="text-right text-xs text-emerald-400">{formatRupiah(paid, true)}</td>
-                  <td className={`text-right text-xs font-medium ${sisa>0?(tab==='utang'?'text-red-400':'text-yellow-400'):'text-zinc-600'}`}>{sisa>0?formatRupiah(sisa,true):'—'}</td>
+                  <td className={`text-right text-xs font-medium ${sisa>0?'text-red-400':'text-zinc-600'}`}>{sisa>0?formatRupiah(sisa,true):'—'}</td>
                   <td className="text-xs text-zinc-400">{item.dueDate?formatDate(item.dueDate):'—'}</td>
                   <td><span className={STATUS_COLOR[item.status]||'badge-muted'}>{item.status}</span></td>
                   {user?.userRole === 'OWNER' && (
@@ -264,7 +267,64 @@ export function UtangTab() {
                   )}
                 </tr>
               )
-            })}
+            }) : (() => {
+              const colSpan = user?.userRole === 'OWNER' ? 8 : 7
+              const PIUTANG_GROUPS: { key: string; label: string }[] = [
+                { key: 'PO_VENDOR_BELUM_DIKIRIM', label: 'Piutang Vendor' },
+                { key: 'PINJAMAN_KARYAWAN',       label: 'Piutang Karyawan' },
+                { key: 'LAINNYA',                 label: 'Piutang Lainnya' },
+              ]
+              return PIUTANG_GROUPS.flatMap(({ key, label }) => {
+                const groupItems = items.filter((i: any) => i.type === key)
+                if (groupItems.length === 0) return []
+                const groupSisa = groupItems.reduce((acc: number, i: any) => {
+                  const paid = i.amountCollected
+                  return acc + (i.amount - paid)
+                }, 0)
+                return [
+                  <tr key={`group-${key}`}>
+                    <td colSpan={colSpan} className="bg-zinc-800/50 px-3 py-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-semibold text-zinc-300">{label}</span>
+                        <span className="text-xs text-yellow-400 font-medium">{formatRupiah(groupSisa, true)}</span>
+                      </div>
+                    </td>
+                  </tr>,
+                  ...groupItems.map((item: any) => {
+                    const paid = item.amountCollected
+                    const sisa = item.amount - paid
+                    return (
+                      <tr key={item.id}>
+                        <td>
+                          <p className="text-sm text-zinc-200">{item.creditorName||item.debtorName}</p>
+                          <p className="text-[10px] text-zinc-600">{item.sourceWalletName}</p>
+                        </td>
+                        <td><span className="text-xs text-zinc-400">{item.type?.replace(/_/g,' ')}</span></td>
+                        <td className="text-right text-xs text-zinc-300">{formatRupiah(item.amount, true)}</td>
+                        <td className="text-right text-xs text-emerald-400">{formatRupiah(paid, true)}</td>
+                        <td className={`text-right text-xs font-medium ${sisa>0?'text-yellow-400':'text-zinc-600'}`}>{sisa>0?formatRupiah(sisa,true):'—'}</td>
+                        <td className="text-xs text-zinc-400">{item.dueDate?formatDate(item.dueDate):'—'}</td>
+                        <td><span className={STATUS_COLOR[item.status]||'badge-muted'}>{item.status}</span></td>
+                        {user?.userRole === 'OWNER' && (
+                          <td>
+                            <div className="flex gap-1">
+                              <button onClick={() => setEditItem(item)}
+                                className="p-1.5 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-zinc-200 transition-colors">
+                                <Pencil size={12}/>
+                              </button>
+                              <button onClick={() => handleDelete(item)} disabled={deletingId === item.id}
+                                className="p-1.5 rounded bg-zinc-800 hover:bg-red-900/50 text-zinc-500 hover:text-red-400 disabled:opacity-40 transition-colors">
+                                <Trash2 size={12}/>
+                              </button>
+                            </div>
+                          </td>
+                        )}
+                      </tr>
+                    )
+                  }),
+                ]
+              })
+            })()}
           </tbody>
         </table>
       </div>

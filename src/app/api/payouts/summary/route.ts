@@ -37,27 +37,19 @@ export async function GET(request: NextRequest) {
     },
   })
 
-  // ── Query 2: Beban Ongkir from wallet_ledger ─────────
-  const ledgerWhere: Record<string, unknown> = {
-    category: 'Beban Kerugian Ongkir',
-  }
-  if (Object.keys(dateFilter).length) ledgerWhere.trxDate = dateFilter
-  if (walletId) ledgerWhere.walletId = walletId
-
-  const bebanLedger = await prisma.walletLedger.findMany({
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    where: ledgerWhere as any,
-    select: { note: true, amount: true },
+  // ── Query 2: Beban Ongkir from payout table (new source after fix) ─────────
+  const bebanGroups = await prisma.payout.groupBy({
+    by: ['platform'],
+    where: payoutWhere as Parameters<typeof prisma.payout.groupBy>[0]['where'],
+    _sum: { bebanOngkir: true },
   })
 
-  // Parse platform from note: "Retur Shopee - ..." → "Shopee"  |  "Retur TikTok - ..." → "TikTok"
   let bebanShopee = 0
   let bebanTikTok = 0
-  for (const entry of bebanLedger) {
-    const n = entry.note?.toLowerCase() ?? ''
-    const amt = Math.abs(entry.amount)
-    if (n.includes('shopee')) bebanShopee += amt
-    else if (n.includes('tiktok')) bebanTikTok += amt
+  for (const g of bebanGroups) {
+    const p = (g.platform ?? '').toLowerCase()
+    if (p === 'shopee') bebanShopee = g._sum.bebanOngkir ?? 0
+    else if (p === 'tiktok') bebanTikTok = g._sum.bebanOngkir ?? 0
   }
 
   // ── Shape response ───────────────────────────────────
