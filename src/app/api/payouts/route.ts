@@ -402,14 +402,33 @@ export async function POST(request: NextRequest) {
         bebanCount++
         totalBeban += settlement
         detailBeban.push({ orderNo, amount: settlement })
+        const rawDateNeg = String(row['Tanggal Dana Dilepaskan'] ?? '').trim()
+        const releasedDateNeg = rawDateNeg && !isNaN(new Date(rawDateNeg).getTime()) ? new Date(rawDateNeg) : (periodeFrom ? new Date(periodeFrom) : new Date())
+        // Shopee minus: masuk sebagai PAYOUT negatif (sama seperti TikTok) supaya mengurangi total pencairan
+        allPayoutInserts.push({
+          orderNo,
+          releasedDate: releasedDateNeg,
+          platform,
+          omzet:            0,
+          platformFee:      0,
+          amsFee:           0,
+          platformFeeOther: 0,
+          bebanOngkir:      Math.round(Math.abs(settlement)),
+          totalIncome:      Math.round(settlement), // nilai negatif
+          walletId,
+          source:           'shopee_income',
+          createdBy:        session.username,
+          orderId:          orderIdMap.get(orderNo) ?? null,
+        })
         allLedgerInserts.push({
           walletId,
-          trxDate:  periodeFrom ? new Date(periodeFrom) : new Date(),
-          trxType:  'EXPENSE',
-          category: 'Beban Kerugian Ongkir',
-          amount:   settlement,
-          note:     `Retur Shopee - ${orderNo}`,
-          createdBy: session.username,
+          trxDate:    releasedDateNeg,
+          trxType:    'PAYOUT',
+          category:   ledgerCat,
+          amount:     Math.round(settlement), // negatif → mengurangi saldo
+          refOrderNo: orderNo,
+          note:       `Payout Shopee (minus) - ${orderNo}`,
+          createdBy:  session.username,
         })
         continue
       }
