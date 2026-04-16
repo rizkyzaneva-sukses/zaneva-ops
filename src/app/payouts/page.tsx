@@ -10,7 +10,7 @@ import * as XLSX from 'xlsx'
 import { useAuth } from '@/components/providers'
 import {
   TrendingUp, Upload, Loader2, ChevronLeft, ChevronRight,
-  X, ShoppingBag, Music2, CalendarRange, AlertTriangle, Trash, RefreshCw
+  X, ShoppingBag, Music2, CalendarRange, AlertTriangle, Trash
 } from 'lucide-react'
 
 // ─── Types ───────────────────────────────────────────
@@ -94,7 +94,6 @@ export default function PayoutsPage() {
   const { user } = useAuth()
 
   // File refs
-  const csvRef    = useRef<HTMLInputElement>(null)
   const shopeeRef = useRef<HTMLInputElement>(null)
   const tiktokRef = useRef<HTMLInputElement>(null)
 
@@ -107,8 +106,6 @@ export default function PayoutsPage() {
   const [importing,  setImporting]  = useState(false)
   const [selectedIds, setSelectedIds] = useState<string[]>([])
   const [deleting, setDeleting] = useState(false)
-  const [backfilling, setBackfilling] = useState(false)
-
   // Modal states
   const [shopeeModal,   setShopeeModal]   = useState(false)
   const [tiktokModal,   setTiktokModal]   = useState(false)
@@ -177,62 +174,7 @@ export default function PayoutsPage() {
     }
   }
 
-  const handleBackfillDates = async () => {
-    if (!confirm('Sinkronisasi tanggal cair order dari data payout?\n\nProses ini akan update trx_date semua order yang punya payout. Lanjutkan?')) return
-    setBackfilling(true)
-    try {
-      const res = await fetch('/api/payouts/backfill-dates', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ dryRun: false }),
-      })
-      const json = await res.json()
-      if (res.ok) {
-        toast({ title: `✓ ${json.data.updated} baris order berhasil disinkronkan`, type: 'success' })
-        qc.invalidateQueries({ queryKey: ['payouts'] })
-        qc.invalidateQueries({ queryKey: ['orders'] })
-      } else {
-        toast({ title: json.error || 'Gagal sinkronisasi', type: 'error' })
-      }
-    } catch (err: any) {
-      toast({ title: `Error: ${err.message}`, type: 'error' })
-    } finally {
-      setBackfilling(false)
-    }
-  }
-
   // ── Handlers ─────────────────────────────────────────
-
-  // CSV Manual (legacy)
-  const handleCsvUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (!file || !walletId) {
-      toast({ title: 'Pilih wallet terlebih dahulu', type: 'error' }); return
-    }
-    setImporting(true)
-    Papa.parse(file, {
-      header: true, skipEmptyLines: true,
-      complete: async (results) => {
-        try {
-          const res = await fetch('/api/payouts', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ payouts: results.data, walletId, source: 'manual_csv' }),
-          })
-          const json = await res.json()
-          if (res.ok) {
-            toast({ title: `${json.data.inserted} payout diimport, ${json.data.skipped} duplikat`, type: 'success' })
-            qc.invalidateQueries({ queryKey: ['payouts'] })
-            qc.invalidateQueries({ queryKey: ['payouts-summary'] })
-            qc.invalidateQueries({ queryKey: ['wallets'] })
-          } else {
-            toast({ title: json.error, type: 'error' })
-          }
-        } catch { toast({ title: 'Gagal upload', type: 'error' }) }
-        finally { setImporting(false); if (csvRef.current) csvRef.current.value = '' }
-      },
-    })
-  }
 
   // Parse & upload Shopee
   const handleShopeeFile = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -464,20 +406,8 @@ export default function PayoutsPage() {
           </select>
 
           {/* Hidden file inputs */}
-          <input ref={csvRef}    type="file" accept=".csv"  className="hidden" onChange={handleCsvUpload} />
           <input ref={shopeeRef} type="file" accept=".xlsx" className="hidden" onChange={handleShopeeFile} />
           <input ref={tiktokRef} type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={handleTiktokFile} />
-
-          {/* CSV Manual */}
-          <button
-            id="btn-upload-csv"
-            onClick={() => { if (!walletId) { toast({ title: 'Pilih wallet dulu', type: 'error' }); return }; csvRef.current?.click() }}
-            disabled={importing}
-            className="flex items-center gap-1.5 bg-zinc-700 hover:bg-zinc-600 disabled:opacity-50 text-white rounded-lg px-3 py-2 text-sm font-medium transition-colors"
-          >
-            {importing ? <Loader2 size={13} className="animate-spin" /> : <Upload size={13} />}
-            CSV Manual
-          </button>
 
           {/* Upload Shopee */}
           <button
@@ -501,19 +431,6 @@ export default function PayoutsPage() {
             Upload TikTok
           </button>
 
-          {/* Backfill tanggal cair — OWNER only */}
-          {user?.userRole === 'OWNER' && (
-            <button
-              id="btn-backfill-dates"
-              onClick={handleBackfillDates}
-              disabled={backfilling}
-              title="Sinkronkan trx_date order dari data payout yang sudah ada"
-              className="flex items-center gap-1.5 bg-zinc-700 hover:bg-zinc-600 disabled:opacity-50 text-zinc-300 hover:text-white border border-zinc-600 rounded-lg px-3 py-2 text-sm font-medium transition-colors"
-            >
-              {backfilling ? <Loader2 size={13} className="animate-spin" /> : <RefreshCw size={13} />}
-              Sinkron Tgl Cair
-            </button>
-          )}
         </div>
       </div>
 
