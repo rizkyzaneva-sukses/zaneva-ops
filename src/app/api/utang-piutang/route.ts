@@ -142,3 +142,27 @@ export async function PATCH(request: NextRequest) {
     return apiSuccess(updated)
   }
 }
+
+// DELETE /api/utang-piutang — hapus record (OWNER only, hanya jika belum ada pembayaran)
+export async function DELETE(request: NextRequest) {
+  const session = await getSession()
+  if (!session.isLoggedIn) return apiError('Unauthorized', 401)
+  if (!['OWNER'].includes(session.userRole)) return apiError('Hanya Owner yang dapat menghapus', 403)
+
+  const { id, entityType } = await request.json()
+  if (!id || !entityType) return apiError('id dan entityType wajib diisi')
+
+  if (entityType === 'utang') {
+    const utang = await prisma.utang.findUnique({ where: { id }, include: { payments: true } })
+    if (!utang) return apiError('Data tidak ditemukan', 404)
+    if (utang.payments.length > 0) return apiError('Tidak bisa hapus — sudah ada riwayat pembayaran. Gunakan fitur bayar untuk melunasi.')
+    await prisma.utang.delete({ where: { id } })
+  } else {
+    const piutang = await prisma.piutang.findUnique({ where: { id }, include: { collections: true } })
+    if (!piutang) return apiError('Data tidak ditemukan', 404)
+    if (piutang.collections.length > 0) return apiError('Tidak bisa hapus — sudah ada riwayat penagihan. Gunakan fitur tagih untuk melunasinya.')
+    await prisma.piutang.delete({ where: { id } })
+  }
+
+  return apiSuccess({ message: 'Berhasil dihapus' })
+}

@@ -5,7 +5,7 @@ import { useState } from 'react'
 import { formatRupiah, formatDate } from '@/lib/utils'
 import { useToast } from '@/components/ui/toaster'
 import { useAuth } from '@/components/providers'
-import { CreditCard, Plus, Pencil, X } from 'lucide-react'
+import { CreditCard, Plus, Pencil, Trash2, X } from 'lucide-react'
 
 const STATUS_COLOR: Record<string,string> = {
   OUTSTANDING:'badge-danger', PARTIAL:'badge-warning', PAID:'badge-success', COLLECTED:'badge-success',
@@ -147,10 +147,34 @@ export function UtangTab() {
   const [tab, setTab]   = useState<'utang'|'piutang'>('utang')
   const [modal, setModal] = useState<'utang'|'piutang'|null>(null)
   const [editItem, setEditItem] = useState<any>(null)
+  const [deletingId, setDeletingId] = useState<string|null>(null)
 
   const { data: wallets } = useQuery({ queryKey:['wallets'], queryFn:()=>fetch('/api/wallet').then(r=>r.json()).then(d=>d.data??[]) })
   const { data, isLoading } = useQuery({ queryKey:['utang-piutang', tab],
     queryFn:()=>fetch(`/api/utang-piutang?type=${tab}`).then(r=>r.json()).then(d=>d.data) })
+  const { data: outstandingOrders } = useQuery({
+    queryKey: ['outstanding-orders'],
+    queryFn: () => fetch('/api/utang-piutang/outstanding-orders').then(r => r.json()).then(d => d.data),
+    enabled: tab === 'piutang',
+  })
+
+  const handleDelete = async (item: any) => {
+    const label = tab === 'utang' ? item.creditorName : item.debtorName
+    if (!confirm(`Hapus ${tab} "${label}"? Tindakan ini tidak dapat dibatalkan.`)) return
+    setDeletingId(item.id)
+    try {
+      const res = await fetch('/api/utang-piutang', {
+        method: 'DELETE', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: item.id, entityType: tab }),
+      })
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.error)
+      toast({ title: 'Berhasil dihapus', type: 'success' })
+      qc.invalidateQueries({ queryKey: ['utang-piutang'] })
+    } catch (err: any) {
+      toast({ title: err.message || 'Gagal menghapus', type: 'error' })
+    } finally { setDeletingId(null) }
+  }
 
   const items = tab==='utang'?(data?.utangs??[]):(data?.piutangs??[])
   const totalOutstanding = data?.totalOutstanding ?? 0
@@ -173,7 +197,7 @@ export function UtangTab() {
         </div>
       </div>
 
-      <div className="stat-card mb-6 flex items-center justify-between">
+      <div className="stat-card mb-4 flex items-center justify-between">
         <div>
           <p className="text-zinc-500 text-xs mb-1">Total {tab} Outstanding</p>
           <p className={`text-2xl font-bold ${tab==='utang'?'text-red-400':'text-emerald-400'}`}>{formatRupiah(totalOutstanding, true)}</p>
@@ -181,13 +205,28 @@ export function UtangTab() {
         <CreditCard size={32} className={tab==='utang'?'text-red-900':'text-emerald-900'}/>
       </div>
 
+      {tab === 'piutang' && (
+        <div className="grid grid-cols-2 gap-3 mb-6">
+          <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-4">
+            <p className="text-zinc-500 text-xs mb-1">Piutang Shopee (Status Terkirim)</p>
+            <p className="text-xl font-bold text-orange-400">{formatRupiah(outstandingOrders?.shopee ?? 0, true)}</p>
+            <p className="text-zinc-600 text-[10px] mt-0.5">{outstandingOrders?.shopeeCount ?? 0} order belum cair</p>
+          </div>
+          <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-4">
+            <p className="text-zinc-500 text-xs mb-1">Piutang TikTok (Status Terkirim)</p>
+            <p className="text-xl font-bold text-cyan-400">{formatRupiah(outstandingOrders?.tiktok ?? 0, true)}</p>
+            <p className="text-zinc-600 text-[10px] mt-0.5">{outstandingOrders?.tiktokCount ?? 0} order belum cair</p>
+          </div>
+        </div>
+      )}
+
       <div className="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden">
         <table className="data-table w-full">
           <thead><tr>
             <th>Nama</th><th className="w-28">Tipe</th><th className="w-28 text-right">Jumlah</th>
             <th className="w-28 text-right">Terbayar</th><th className="w-28 text-right">Sisa</th>
             <th className="w-24">Jatuh Tempo</th><th className="w-24">Status</th>
-            {user?.userRole === 'OWNER' && <th className="w-16">Aksi</th>}
+            {user?.userRole === 'OWNER' && <th className="w-20">Aksi</th>}
           </tr></thead>
           <tbody>
             {isLoading ? Array.from({length:4}).map((_,i) => (
@@ -211,10 +250,16 @@ export function UtangTab() {
                   <td><span className={STATUS_COLOR[item.status]||'badge-muted'}>{item.status}</span></td>
                   {user?.userRole === 'OWNER' && (
                     <td>
-                      <button onClick={() => setEditItem(item)}
-                        className="p-1.5 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-zinc-200 transition-colors">
-                        <Pencil size={12}/>
-                      </button>
+                      <div className="flex gap-1">
+                        <button onClick={() => setEditItem(item)}
+                          className="p-1.5 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-zinc-200 transition-colors">
+                          <Pencil size={12}/>
+                        </button>
+                        <button onClick={() => handleDelete(item)} disabled={deletingId === item.id}
+                          className="p-1.5 rounded bg-zinc-800 hover:bg-red-900/50 text-zinc-500 hover:text-red-400 disabled:opacity-40 transition-colors">
+                          <Trash2 size={12}/>
+                        </button>
+                      </div>
                     </td>
                   )}
                 </tr>
