@@ -41,21 +41,25 @@ export async function GET(request: NextRequest) {
   const labaKotor = pendapatanKotor - hpp
 
   // ── 2. Biaya Penjualan (Fee Platform & AMS) dari Payout ─────────────────
-  // CATATAN: bebanOngkir dari TikTok negatif TIDAK dimasukkan ke feePlatform,
-  // karena sudah ter-net di totalIncome (payout negatif mengurangi pencairan bersih).
-  // Memasukkannya lagi = double counting. Ditampilkan sebagai informasi saja.
-  const payoutAgg = await prisma.payout.aggregate({
+  const payoutBySource = await prisma.payout.groupBy({
+    by: ['source'],
     where: { releasedDate: { gte: fromDate, lte: toDate } },
     _sum: { platformFee: true, amsFee: true, platformFeeOther: true, bebanOngkir: true },
   })
 
-  const feePlatform = (payoutAgg._sum.platformFee || 0)
-    + (payoutAgg._sum.amsFee || 0)
-    + (payoutAgg._sum.platformFeeOther || 0)
-    // bebanOngkir sengaja tidak dijumlahkan — sudah ter-net di pencairan bersih
-
-  // INFO: total beban kerugian TikTok (order negatif) — tidak mengurangi laba
-  const bebanKerugianTikTok = payoutAgg._sum.bebanOngkir || 0
+  let feeShopee = 0, feeTikTok = 0, feeAms = 0, feeLainnya = 0, bebanKerugianTikTok = 0
+  for (const row of payoutBySource) {
+    const pf  = row._sum.platformFee      || 0
+    const af  = row._sum.amsFee           || 0
+    const pfo = row._sum.platformFeeOther || 0
+    const bo  = row._sum.bebanOngkir      || 0
+    feeAms     += af
+    feeLainnya += pfo
+    if (row.source === 'shopee_income') feeShopee  += pf
+    else                                feeTikTok  += pf
+    if (row.source === 'tiktok_income') bebanKerugianTikTok += bo
+  }
+  const feePlatform = feeShopee + feeTikTok + feeAms + feeLainnya
 
   // ── 3. Pendapatan Lain (OTHER_INCOME) ────────────────────────────────────
   const otherIncomes = await prisma.walletLedger.aggregate({
@@ -111,12 +115,12 @@ export async function GET(request: NextRequest) {
     hpp,
     labaKotor,
     feePlatform,
+    feePlatformDetail: { feeShopee, feeTikTok, feeAms, feeLainnya },
     bebanOperasional,
     expenseGroups,
     labaBersihOperasional,
     otherIncome,
     labaBersih,
-    // Informasi saja — tidak masuk perhitungan laba karena sudah ter-net di pencairan bersih
     bebanKerugianTikTok,
   })
 }
