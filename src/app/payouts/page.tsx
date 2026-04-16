@@ -918,20 +918,6 @@ export default function PayoutsPage() {
                 </div>
               </div>
 
-              {/* Debug Info */}
-              {uploadResult.debug && (
-                <div className="bg-amber-900/20 border border-amber-900/50 rounded-xl p-3 space-y-2 mt-4">
-                  <p className="text-xs font-semibold text-amber-500 flex items-center gap-1">Debug Kolom (Info untuk Developer):</p>
-                  <p className="text-[10px] text-zinc-400">Kolom Omzet detected: <b className="text-amber-400">{uploadResult.debug.omzetColumn}</b></p>
-                  <p className="text-[10px] text-zinc-400">Kolom Settlement detected: <b className="text-amber-400">{uploadResult.debug.settlementColumn}</b></p>
-                  <div className="mt-2">
-                    <p className="text-[10px] text-zinc-500 mb-1">Semua Header di File (copy ini untuk diberikan ke developer):</p>
-                    <div className="bg-black/50 p-2 rounded text-[9px] text-zinc-400 font-mono break-all leading-relaxed max-h-24 overflow-y-auto custom-scrollbar">
-                      {uploadResult.debug.allColumns?.join(', ')}
-                    </div>
-                  </div>
-                </div>
-              )}
 
               
               {/* Detail Gagal (Invalid Rows) */}
