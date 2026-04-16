@@ -170,10 +170,18 @@ export async function POST(request: NextRequest) {
   const products = await prisma.masterProduct.findMany({ select: { sku: true, hpp: true } })
   const hppMap = new Map(products.map(p => [p.sku.toLowerCase(), p.hpp]))
 
+  // Fetch biaya admin dari settings (fallback ke default jika belum ada)
+  const [shopeeFeeSetting, tiktokFeeSetting] = await Promise.all([
+    prisma.appSetting.findUnique({ where: { key: 'biaya_admin_shopee' } }),
+    prisma.appSetting.findUnique({ where: { key: 'biaya_admin_tiktok' } }),
+  ])
+  const shopeeAdminFee = parseFloat(shopeeFeeSetting?.value ?? '14')
+  const tiktokAdminFee = parseFloat(tiktokFeeSetting?.value ?? '14.1')
+
   // Parse
   const parsed = platform === 'Shopee'
-    ? parseShopeeOrders(rawRows, hppMap)
-    : parseTikTokOrders(rawRows, hppMap)
+    ? parseShopeeOrders(rawRows, hppMap, shopeeAdminFee)
+    : parseTikTokOrders(rawRows, hppMap, tiktokAdminFee)
 
   if (parsed.length === 0) {
     return apiError('Tidak ada data valid — semua order mungkin berstatus batal.')

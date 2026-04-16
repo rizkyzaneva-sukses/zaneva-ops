@@ -71,7 +71,8 @@ function isTikTokCancel(status: string): boolean {
  */
 export function parseShopeeOrders(
   rawRows: Record<string, unknown>[],
-  hppMap: Map<string, number>  // sku.toLowerCase() → hpp
+  hppMap: Map<string, number>,  // sku.toLowerCase() → hpp
+  shopeeAdminFee = 14
 ): ParsedOrder[] {
   // Group by No. Pesanan untuk handle multi-item invoice
   const groups = new Map<string, Record<string, unknown>[]>()
@@ -102,9 +103,9 @@ export function parseShopeeOrders(
       // Voucher hanya berlaku di baris pertama
       const voucher = idx === 0 ? voucherSeller : 0
 
-      // Real Omzet = ((HargaAfterDisc - Voucher) - ((HargaAfterDisc - Voucher) * 14%)) * Qty
+      // Real Omzet = ((HargaAfterDisc - Voucher) - ((HargaAfterDisc - Voucher) * adminFee%)) * Qty
       const basePrice = hargaAfterDisc - voucher
-      const fee = basePrice * 0.14
+      const fee = basePrice * (shopeeAdminFee / 100)
       const realOmzetPerItem = Math.round((basePrice - fee) * qty)
 
       // SKU = Nomor Referensi SKU
@@ -149,7 +150,8 @@ export function parseShopeeOrders(
  */
 export function parseTikTokOrders(
   rawRows: Record<string, unknown>[],
-  hppMap: Map<string, number>
+  hppMap: Map<string, number>,
+  tiktokAdminFee = 14.1
 ): ParsedOrder[] {
   const result: ParsedOrder[] = []
 
@@ -163,8 +165,8 @@ export function parseTikTokOrders(
     const subtotalAfterDisc = parseTikTokNum(row['SKU Subtotal After Discount'])
     const qty = Math.max(1, parseInt(String(row['Quantity'] || '1'), 10))
 
-    // Real Omzet = Subtotal After Discount * (1 - 14.1%)
-    const realOmzetPerItem = Math.round(subtotalAfterDisc * (1 - 0.141))
+    // Real Omzet = Subtotal After Discount * (1 - adminFee%)
+    const realOmzetPerItem = Math.round(subtotalAfterDisc * (1 - tiktokAdminFee / 100))
 
     const sku = String(row['Seller SKU'] || '').trim() || null
     const skuKey = sku?.toLowerCase() ?? ''

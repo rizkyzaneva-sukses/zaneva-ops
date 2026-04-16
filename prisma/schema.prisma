@@ -816,3 +816,15 @@ model SuggestRevision {
 
   @@map("suggest_revisions")
 }
+
+// ─────────────────────────────────────────────
+// App Settings
+// ─────────────────────────────────────────────
+model AppSetting {
+  key       String   @id
+  value     String
+  updatedAt DateTime @updatedAt @map("updated_at")
+  updatedBy String?  @map("updated_by")
+
+  @@map("app_settings")
+}
