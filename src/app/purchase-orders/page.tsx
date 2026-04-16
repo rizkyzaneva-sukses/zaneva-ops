@@ -16,7 +16,7 @@ const PAY_STATUS_COLOR: Record<string, string> = {
   UNPAID: 'badge-danger', PARTIAL_PAID: 'badge-warning', PAID: 'badge-success',
 }
 
-function POItemSelect({ item, onSelect }: { item: any; onSelect: (sku: string) => void }) {
+function POItemSelect({ item, onSelect }: { item: any; onSelect: (product: any) => void }) {
   const [open, setOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [suggestions, setSuggestions] = useState<any[]>([])
@@ -62,7 +62,7 @@ function POItemSelect({ item, onSelect }: { item: any; onSelect: (sku: string) =
   }
 
   const handleSelect = (p: any) => {
-    onSelect(p.sku)
+    onSelect(p)
     setDisplayName(`${p.sku} — ${p.productName}`)
     setOpen(false)
     setSearchQuery('')
@@ -136,47 +136,73 @@ function POFormModal({
   const [poDate, setPoDate] = useState(isEdit ? editPO.poDate?.slice(0, 10) : new Date().toISOString().slice(0, 10))
   const [expectedDate, setExpectedDate] = useState(isEdit ? (editPO.expectedDate?.slice(0, 10) || '') : '')
   const [note, setNote] = useState(isEdit ? (editPO.note || '') : '')
-  const [items, setItems] = useState<{ sku: string; productName?: string; qtyOrder: number }[]>(
+  const [items, setItems] = useState<{ sku: string; productName?: string; categoryName?: string; qtyOrder: number }[]>(
     isEdit
-      ? (editPO.items?.map((it: any) => ({ sku: it.sku, productName: it.productName, qtyOrder: it.qtyOrder })) || [{ sku: '', qtyOrder: 1 }])
+      ? (editPO.items?.map((it: any) => ({ sku: it.sku, productName: it.productName, categoryName: '', qtyOrder: it.qtyOrder })) || [{ sku: '', qtyOrder: 1 }])
       : [{ sku: '', qtyOrder: 1 }]
   )
   const [loading, setLoading] = useState(false)
+  const [autoSplit, setAutoSplit] = useState(false)
 
   const addItem = () => setItems(p => [...p, { sku: '', qtyOrder: 1 }])
   const removeItem = (i: number) => setItems(p => p.filter((_, idx) => idx !== i))
   const updateItem = (i: number, field: string, val: any) =>
     setItems(p => p.map((item, idx) => idx === i ? { ...item, [field]: val } : item))
 
+  const validItems = items.filter(i => i.sku && i.qtyOrder > 0)
+  const categoryGroups = validItems.reduce<Record<string, typeof validItems>>((acc, item) => {
+    const cat = item.categoryName || 'Tanpa Kategori'
+    if (!acc[cat]) acc[cat] = []
+    acc[cat].push(item)
+    return acc
+  }, {})
+  const categories = Object.keys(categoryGroups)
+  const isMultiCategory = categories.length > 1
+
+  function buildSplitPONumbers(base: string, count: number): string[] {
+    const match = base.trim().match(/^(.*?)(\d+)$/)
+    if (!match) return Array.from({ length: count }, (_, i) => i === 0 ? base.trim() : `${base.trim()}-${i + 1}`)
+    const [, prefix, numStr] = match
+    const start = parseInt(numStr)
+    const pad = numStr.length
+    return Array.from({ length: count }, (_, i) => `${prefix}${String(start + i).padStart(pad, '0')}`)
+  }
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!vendorId) { toast({ title: 'Pilih vendor', type: 'error' }); return }
-    const validItems = items.filter(i => i.sku && i.qtyOrder > 0)
     if (!validItems.length) { toast({ title: 'Tambah minimal 1 item', type: 'error' }); return }
     setLoading(true)
     try {
-      const payload = {
-        vendorId,
-        poDate,
-        expectedDate: expectedDate || null,
-        note,
-        items: validItems.map(i => ({ sku: i.sku, qtyOrder: i.qtyOrder })),
-        ...(poNumberOverride.trim() && !isEdit ? { poNumberOverride: poNumberOverride.trim() } : {}),
+      if (autoSplit && isMultiCategory && !isEdit) {
+        const poNumbers = buildSplitPONumbers(poNumberOverride.trim() || '', categories.length)
+        const results: string[] = []
+        for (let i = 0; i < categories.length; i++) {
+          const cat = categories[i]
+          const catItems = categoryGroups[cat].map(item => ({ sku: item.sku, qtyOrder: item.qtyOrder }))
+          const payload = { vendorId, poDate, expectedDate: expectedDate || null, note, items: catItems, ...(poNumbers[i] ? { poNumberOverride: poNumbers[i] } : {}) }
+          const res = await fetch('/api/purchase-orders', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
+          const json = await res.json()
+          if (!res.ok) throw new Error(`Gagal buat PO untuk kategori ${cat}: ${json.error}`)
+          results.push(json.data.poNumber)
+        }
+        toast({ title: `${results.length} PO berhasil dibuat: ${results.join(', ')}`, type: 'success' })
+      } else {
+        const payload = {
+          vendorId,
+          poDate,
+          expectedDate: expectedDate || null,
+          note,
+          items: validItems.map(i => ({ sku: i.sku, qtyOrder: i.qtyOrder })),
+          ...(poNumberOverride.trim() && !isEdit ? { poNumberOverride: poNumberOverride.trim() } : {}),
+        }
+        const res = isEdit
+          ? await fetch('/api/purchase-orders', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: editPO.id, ...payload }) })
+          : await fetch('/api/purchase-orders', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
+        const json = await res.json()
+        if (!res.ok) throw new Error(json.error)
+        toast({ title: isEdit ? `PO berhasil diperbarui` : `PO ${json.data.poNumber} berhasil dibuat`, type: 'success' })
       }
-      const res = isEdit
-        ? await fetch('/api/purchase-orders', {
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ id: editPO.id, ...payload }),
-          })
-        : await fetch('/api/purchase-orders', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload),
-          })
-      const json = await res.json()
-      if (!res.ok) throw new Error(json.error)
-      toast({ title: isEdit ? `PO berhasil diperbarui` : `PO ${json.data.poNumber} berhasil dibuat`, type: 'success' })
       qc.invalidateQueries({ queryKey: ['purchase-orders'] })
       onClose()
     } catch (err: any) {
@@ -247,7 +273,7 @@ function POFormModal({
                 <div key={i} className="flex gap-2">
                   <POItemSelect
                     item={item}
-                    onSelect={(sku) => updateItem(i, 'sku', sku)}
+                    onSelect={(p) => setItems(prev => prev.map((it, idx) => idx === i ? { ...it, sku: p.sku, productName: p.productName, categoryName: p.categoryName || '' } : it))}
                   />
                   <input type="number" min={1} value={item.qtyOrder} onChange={e => updateItem(i, 'qtyOrder', Number(e.target.value))}
                     className="w-24 bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-200 focus:outline-none"/>
@@ -259,10 +285,40 @@ function POFormModal({
             </div>
           </div>
 
+          {/* Auto Split Toggle */}
+          {!isEdit && validItems.length > 0 && (
+            <div className="border border-zinc-700 rounded-xl p-3 space-y-2">
+              <label className="flex items-center gap-2 cursor-pointer select-none">
+                <input type="checkbox" checked={autoSplit} onChange={e => setAutoSplit(e.target.checked)}
+                  className="w-3.5 h-3.5 accent-emerald-500" />
+                <span className="text-xs text-zinc-300 font-medium">Auto Split berdasarkan Kategori</span>
+                {isMultiCategory && <span className="text-[10px] bg-emerald-900/40 text-emerald-400 border border-emerald-800 px-1.5 py-0.5 rounded-full">{categories.length} kategori terdeteksi</span>}
+              </label>
+              {autoSplit && isMultiCategory && (
+                <div className="space-y-1 pt-1">
+                  {(() => {
+                    const poNums = buildSplitPONumbers(poNumberOverride.trim() || '???', categories.length)
+                    return categories.map((cat, i) => (
+                      <div key={cat} className="flex items-start gap-2 text-[11px]">
+                        <span className="font-mono text-emerald-400 shrink-0 w-24 truncate">{poNums[i]}</span>
+                        <span className="text-zinc-500">→</span>
+                        <span className="text-zinc-400">[{cat}]</span>
+                        <span className="text-zinc-500">{categoryGroups[cat].map(it => it.sku).join(', ')} ({categoryGroups[cat].length} item)</span>
+                      </div>
+                    ))
+                  })()}
+                </div>
+              )}
+              {autoSplit && !isMultiCategory && (
+                <p className="text-[11px] text-zinc-500">Semua item dalam 1 kategori — tidak perlu split.</p>
+              )}
+            </div>
+          )}
+
           <div className="flex gap-2 pt-2">
             <button type="button" onClick={onClose} className="flex-1 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-lg py-2 text-sm transition-colors">Batal</button>
             <button type="submit" disabled={loading} className="flex-1 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white rounded-lg py-2 text-sm font-medium transition-colors">
-              {loading ? 'Menyimpan...' : isEdit ? 'Simpan Perubahan' : 'Buat PO'}
+              {loading ? 'Menyimpan...' : isEdit ? 'Simpan Perubahan' : autoSplit && isMultiCategory ? `Buat ${categories.length} PO` : 'Buat PO'}
             </button>
           </div>
         </form>

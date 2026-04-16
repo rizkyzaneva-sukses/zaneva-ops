@@ -23,7 +23,7 @@ export async function GET(request: NextRequest) {
         { productName: { contains: q, mode: 'insensitive' } },
       ],
     },
-    select: { sku: true, productName: true, hpp: true, unit: true },
+    select: { sku: true, productName: true, hpp: true, unit: true, categoryName: true },
     take: limit * 3, // ambil lebih untuk re-sort di app
   })
 
