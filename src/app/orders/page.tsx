@@ -396,14 +396,15 @@ export default function OrdersPage() {
 
       {/* Import result banner */}
       {importResult && (
-        <div className="mb-4 bg-emerald-900/20 border border-emerald-800 rounded-xl px-4 py-3 flex items-center gap-3">
-          <CheckCircle2 size={16} className="text-emerald-400 shrink-0" />
-          <div>
-            <p className="text-sm text-emerald-300 font-medium">{importResult.message}</p>
+        <div className={`mb-4 rounded-xl px-4 py-3 flex items-start gap-3 ${(importResult as any).failedCount > 0 ? 'bg-amber-900/20 border border-amber-700' : 'bg-emerald-900/20 border border-emerald-800'}`}>
+          <CheckCircle2 size={16} className={`shrink-0 mt-0.5 ${(importResult as any).failedCount > 0 ? 'text-amber-400' : 'text-emerald-400'}`} />
+          <div className="flex-1">
+            <p className={`text-sm font-medium ${(importResult as any).failedCount > 0 ? 'text-amber-300' : 'text-emerald-300'}`}>{importResult.message}</p>
             <p className="text-xs text-zinc-500 mt-0.5">
-              Platform terdeteksi: <span className="text-zinc-300">{importResult.platform}</span>
+              Platform: <span className="text-zinc-300">{importResult.platform}</span>
               {' · '}Diimport: <span className="text-zinc-300">{importResult.inserted}</span>
-              {importResult.skipped > 0 && <> · Dilewati (duplikat): <span className="text-zinc-300">{importResult.skipped}</span></>}
+              {importResult.skipped > 0 && <> · Duplikat: <span className="text-zinc-300">{importResult.skipped}</span></>}
+              {(importResult as any).failedCount > 0 && <> · <span className="text-red-400 font-medium">Gagal: {(importResult as any).failedCount} baris</span> → tambahkan ke <a href="/produk-gabungan" className="text-yellow-400 underline">Produk Gabungan</a> lalu upload ulang</>}
             </p>
           </div>
           <button onClick={() => setImportResult(null)} className="ml-auto text-zinc-600 hover:text-zinc-400 text-xs">✕</button>
@@ -659,7 +660,7 @@ export default function OrdersPage() {
             </div>
 
             <div className="p-6 overflow-y-auto">
-              <div className="grid grid-cols-3 gap-4 mb-6">
+              <div className={`grid gap-4 mb-6 ${previewData.failedCount > 0 ? 'grid-cols-4' : 'grid-cols-3'}`}>
                 <div className="bg-zinc-950/50 border border-zinc-800 p-4 rounded-xl">
                   <p className="text-xs text-zinc-500 mb-1">Total Data Dibaca</p>
                   <p className="text-2xl font-bold text-zinc-100">{previewData.totalParsed}</p>
@@ -672,7 +673,52 @@ export default function OrdersPage() {
                   <p className="text-xs text-zinc-500 mb-1">Dilewati (Duplikat)</p>
                   <p className="text-2xl font-bold text-amber-500">{previewData.skipped}</p>
                 </div>
+                {previewData.failedCount > 0 && (
+                  <div className="bg-red-950/30 border border-red-800/50 p-4 rounded-xl">
+                    <p className="text-xs text-zinc-500 mb-1">Gagal (SKU tidak ada)</p>
+                    <p className="text-2xl font-bold text-red-400">{previewData.failedCount}</p>
+                  </div>
+                )}
               </div>
+
+              {/* Failed rows section */}
+              {previewData.failedCount > 0 && (
+                <div className="mb-6 bg-red-950/20 border border-red-800/40 rounded-xl overflow-hidden">
+                  <div className="px-4 py-3 border-b border-red-800/40 flex items-center gap-2">
+                    <AlertCircle size={14} className="text-red-400" />
+                    <span className="text-sm font-medium text-red-300">Baris Gagal — SKU Gabungan Tidak Ditemukan</span>
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-xs">
+                      <thead className="text-zinc-500 border-b border-red-800/30">
+                        <tr>
+                          <th className="px-3 py-2 text-left font-medium">No. Baris</th>
+                          <th className="px-3 py-2 text-left font-medium">No. Pesanan / Order ID</th>
+                          <th className="px-3 py-2 text-left font-medium">SKU (tidak ditemukan)</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-red-800/20">
+                        {previewData.failed.map((f: any, i: number) => (
+                          <tr key={i} className="text-zinc-300">
+                            <td className="px-3 py-2 text-zinc-500">{f.rowNumber}</td>
+                            <td className="px-3 py-2 font-mono">{f.orderNo}</td>
+                            <td className="px-3 py-2 text-red-300 font-mono">{f.sku}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  <div className="px-4 py-3 border-t border-red-800/30 bg-zinc-900/30">
+                    <p className="text-xs font-medium text-zinc-400 mb-2">📋 Langkah yang harus dilakukan tim:</p>
+                    <ol className="text-xs text-zinc-500 space-y-1 list-decimal list-inside">
+                      <li>Buka menu <span className="text-white font-medium">Produk Gabungan</span> di sidebar</li>
+                      <li>Klik <span className="text-white font-medium">Tambah</span> atau <span className="text-white font-medium">Import Excel</span></li>
+                      <li>Masukkan mapping: <span className="text-yellow-400">SKU di atas</span> (Kolom A) → SKU internal yang benar (Kolom B)</li>
+                      <li>Setelah semua mapping ditambahkan, <span className="text-white font-medium">upload ulang file order ini</span></li>
+                    </ol>
+                  </div>
+                </div>
+              )}
 
               {previewData.toInsertCount === 0 ? (
                 <div className="py-8 text-center bg-zinc-950/50 rounded-xl border border-dashed border-zinc-800">

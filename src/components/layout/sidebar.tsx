@@ -9,7 +9,7 @@ import {
   Package, ScanLine, ClipboardCheck, Building2, Wallet,
   Users, BookOpen, Database, Shield, Download, AlertTriangle,
   Store, TrendingUp, FileText, LogOut, ChevronDown, ChevronRight,
-  Truck, X, Menu, MessageSquarePlus
+  Truck, X, Menu, MessageSquarePlus, GitMerge
 } from 'lucide-react'
 import { useState } from 'react'
 
@@ -25,8 +25,9 @@ const NAV_ITEMS: NavItem[] = [
   { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard, roles: ['OWNER', 'FINANCE', 'STAFF'] },
   { href: '/orders', label: 'Pesanan', icon: ShoppingCart, roles: ['OWNER', 'FINANCE', 'STAFF'] },
   { href: '/scan-order', label: 'Scan Resi', icon: ScanLine, roles: ['OWNER', 'FINANCE', 'STAFF'] },
-  { href: '/inventory',   label: 'Inventori',    icon: Package, roles: ['OWNER', 'FINANCE', 'STAFF'] },
-  { href: '/procurement', label: 'Procurement',  icon: Truck,   roles: ['OWNER', 'FINANCE'] },
+  { href: '/inventory',        label: 'Inventori',        icon: Package,   roles: ['OWNER', 'FINANCE', 'STAFF'] },
+  { href: '/produk-gabungan',  label: 'Produk Gabungan',  icon: GitMerge,  roles: ['OWNER', 'FINANCE'] },
+  { href: '/procurement',      label: 'Procurement',      icon: Truck,     roles: ['OWNER', 'FINANCE'] },
   { href: '/finance',     label: 'Finance Room', icon: Wallet,  roles: ['OWNER', 'FINANCE'] },
   { href: '/crm', label: 'CRM', icon: Users, roles: ['OWNER', 'FINANCE', 'STAFF'] },
   { href: '/alerts', label: 'Alerts', icon: AlertTriangle, roles: ['OWNER', 'FINANCE'] },

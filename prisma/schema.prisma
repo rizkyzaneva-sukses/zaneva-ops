@@ -818,6 +818,23 @@ model SuggestRevision {
 }
 
 // ─────────────────────────────────────────────
+// SKU Mapping (Produk Gabungan)
+// Mapping dari SKU marketplace (misal "A + B") ke SKU internal DB
+// ─────────────────────────────────────────────
+model SkuMapping {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  createdBy String?  @map("created_by")
+
+  fromSku   String   @unique @map("from_sku")  // SKU dari marketplace (col A)
+  toSku     String   @map("to_sku")            // SKU internal DB (col B, bisa ada +)
+  isActive  Boolean  @default(true) @map("is_active")
+
+  @@map("sku_mappings")
+}
+
+// ─────────────────────────────────────────────
 // App Settings
 // ─────────────────────────────────────────────
 model AppSetting {
