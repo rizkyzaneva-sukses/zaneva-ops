@@ -166,24 +166,26 @@ export async function POST(request: NextRequest) {
     return apiError('Format file tidak dikenali. Pastikan upload file ekspor dari TikTok atau Shopee.')
   }
 
-  // HPP map: sku.toLowerCase() → hpp
-  const products = await prisma.masterProduct.findMany({ select: { sku: true, hpp: true } })
-  const hppMap = new Map(products.map(p => [p.sku.toLowerCase(), p.hpp]))
-
-  // Fetch biaya admin dari settings (fallback ke default jika belum ada)
-  const [shopeeFeeSetting, tiktokFeeSetting] = await Promise.all([
+  // HPP map + SKU mapping, fetch parallel
+  const [products, skuMappings, shopeeFeeSetting, tiktokFeeSetting] = await Promise.all([
+    prisma.masterProduct.findMany({ select: { sku: true, hpp: true } }),
+    prisma.skuMapping.findMany({ where: { isActive: true }, select: { fromSku: true, toSku: true } }),
     prisma.appSetting.findUnique({ where: { key: 'biaya_admin_shopee' } }),
     prisma.appSetting.findUnique({ where: { key: 'biaya_admin_tiktok' } }),
   ])
+
+  const hppMap = new Map(products.map(p => [p.sku.toLowerCase(), p.hpp]))
+  const skuMappingMap = new Map(skuMappings.map(m => [m.fromSku.toLowerCase(), m.toSku]))
+
   const shopeeAdminFee = parseFloat(shopeeFeeSetting?.value ?? '14')
   const tiktokAdminFee = parseFloat(tiktokFeeSetting?.value ?? '14.1')
 
-  // Parse
-  const parsed = platform === 'Shopee'
-    ? parseShopeeOrders(rawRows, hppMap, shopeeAdminFee)
-    : parseTikTokOrders(rawRows, hppMap, tiktokAdminFee)
+  // Parse — sekarang return { orders, failed }
+  const { orders: parsed, failed } = platform === 'Shopee'
+    ? parseShopeeOrders(rawRows, hppMap, skuMappingMap, shopeeAdminFee)
+    : parseTikTokOrders(rawRows, hppMap, skuMappingMap, tiktokAdminFee)
 
-  if (parsed.length === 0) {
+  if (parsed.length === 0 && failed.length === 0) {
     return apiError('Tidak ada data valid — semua order mungkin berstatus batal.')
   }
 
@@ -206,9 +208,14 @@ export async function POST(request: NextRequest) {
         skipped,
         toInsertCount: 0,
         previewItems: [],
+        failed,
+        failedCount: failed.length,
       })
     }
-    return apiSuccess({ inserted: 0, skipped, platform, message: 'Semua data sudah ada.' })
+    return apiSuccess({
+      inserted: 0, skipped, platform, failed, failedCount: failed.length,
+      message: 'Semua data sudah ada.',
+    })
   }
 
   if (body.preview) {
@@ -217,7 +224,9 @@ export async function POST(request: NextRequest) {
       totalParsed: parsed.length,
       skipped,
       toInsertCount: toInsert.length,
-      previewItems: toInsert.slice(0, 5), // Preview first 5 items
+      previewItems: toInsert.slice(0, 5),
+      failed,
+      failedCount: failed.length,
     })
   }
 
@@ -228,7 +237,7 @@ export async function POST(request: NextRequest) {
     platform: o.platform,
     airwaybill: o.airwaybill,
     orderCreatedAt: o.orderCreatedAt,
-    trxDate: parseOrderDate(o.orderCreatedAt),  // parsed DateTime untuk filter yg reliable
+    trxDate: parseOrderDate(o.orderCreatedAt),
     sku: o.sku,
     productName: o.productName,
     qty: o.qty,
@@ -251,11 +260,14 @@ export async function POST(request: NextRequest) {
     inserted += r.count
   }
 
+  const failedMsg = failed.length > 0 ? `, ${failed.length} baris gagal (SKU gabungan tidak ditemukan)` : ''
   return apiSuccess({
     inserted,
     skipped,
     platform,
-    message: `${inserted} order ${platform} berhasil diimport${skipped > 0 ? `, ${skipped} dilewati (duplikat)` : ''}.`,
+    failed,
+    failedCount: failed.length,
+    message: `${inserted} order ${platform} berhasil diimport${skipped > 0 ? `, ${skipped} dilewati (duplikat)` : ''}${failedMsg}.`,
   })
 }
 

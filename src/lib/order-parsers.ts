@@ -23,6 +23,18 @@ export interface ParsedOrder {
   hpp: number  // di-lookup dari MasterProduct by SKU
 }
 
+export interface FailedRow {
+  rowNumber: number  // nomor baris di file upload (1-based, tidak termasuk header)
+  orderNo: string
+  sku: string
+  reason: string
+}
+
+export interface ParseResult {
+  orders: ParsedOrder[]
+  failed: FailedRow[]
+}
+
 // ── Helpers ────────────────────────────────────────────
 
 /** Parse angka dari string Shopee (200.900 → 200900) */
@@ -57,6 +69,31 @@ function isTikTokCancel(status: string): boolean {
   return TIKTOK_CANCEL_STATUSES.some(s => status.toLowerCase().includes(s))
 }
 
+/** Cek apakah SKU adalah produk Kaos/T-shirt (harga = 0) */
+function isKaosSku(sku: string): boolean {
+  const lower = sku.toLowerCase()
+  return lower.includes('kaos') || lower.includes('t-shirt') || lower.includes('tshirt')
+}
+
+/**
+ * Resolve combined SKU (mengandung "+") menggunakan mapping table.
+ * Mengembalikan array individual SKU internal, atau null jika tidak ditemukan di mapping.
+ *
+ * Contoh:
+ *   fromSku = "Chino Khaki PJ + Heritage Olive PD - XL"
+ *   toSku   = "Hino Khaki Panjang - XL + Heritage Olive Pendek - XL"
+ *   result  = ["Hino Khaki Panjang - XL", "Heritage Olive Pendek - XL"]
+ */
+function resolveCombinedSku(
+  sku: string,
+  skuMappingMap: Map<string, string>
+): string[] | null {
+  if (!sku.includes('+')) return [sku]  // SKU tunggal, tidak perlu mapping
+  const mapped = skuMappingMap.get(sku.toLowerCase().trim())
+  if (!mapped) return null  // Tidak ditemukan di mapping → GAGAL
+  return mapped.split('+').map(s => s.trim()).filter(Boolean)
+}
+
 // ── SHOPEE PARSER ──────────────────────────────────────
 
 /**
@@ -64,76 +101,121 @@ function isTikTokCancel(status: string): boolean {
  *
  * Logika:
  * - Skip baris dengan status batal
- * - Voucher Ditanggung Penjual: hanya ambil dari baris PERTAMA per invoice
- * - Real Omzet per baris = (HargaAfterDisc - ((HargaAfterDisc - Voucher) * 14%)) * Qty
- * - SKU = Nomor Referensi SKU
- * - Tanggal = Waktu Dana Dilepaskan (bukan Waktu Pesanan Dibuat)
+ * - SKU mengandung "+": lookup di skuMappingMap, pecah jadi beberapa baris
+ *   - Tidak ditemukan di mapping → seluruh order GAGAL
+ * - Harga dibagi rata ke item non-Kaos; Kaos mendapat harga 0
+ * - Voucher Ditanggung Penjual: dibagi merata per unit ke semua item akhir
+ * - Real Omzet = (basePrice - fee%) × qty
  */
 export function parseShopeeOrders(
   rawRows: Record<string, unknown>[],
-  hppMap: Map<string, number>,  // sku.toLowerCase() → hpp
+  hppMap: Map<string, number>,
+  skuMappingMap: Map<string, string>,  // fromSku.toLowerCase() → toSku
   shopeeAdminFee = 14
-): ParsedOrder[] {
+): ParseResult {
   // Group by No. Pesanan untuk handle multi-item invoice
-  const groups = new Map<string, Record<string, unknown>[]>()
-  for (const row of rawRows) {
+  const groups = new Map<string, { row: Record<string, unknown>; rowNumber: number }[]>()
+  for (let i = 0; i < rawRows.length; i++) {
+    const row = rawRows[i]
     const orderNo = String(row['No. Pesanan'] || '').trim()
     if (!orderNo) continue
     const arr = groups.get(orderNo) ?? []
-    arr.push(row)
+    arr.push({ row, rowNumber: i + 1 })
     groups.set(orderNo, arr)
   }
 
-  const result: ParsedOrder[] = []
+  const orders: ParsedOrder[] = []
+  const failed: FailedRow[] = []
 
-  for (const [orderNo, items] of groups) {
-    const firstItem = items[0]
-    const status = String(firstItem['Status Pesanan'] || '').trim()
+  for (const [orderNo, entries] of groups) {
+    const firstEntry = entries[0]
+    const firstRow = firstEntry.row
+    const status = String(firstRow['Status Pesanan'] || '').trim()
 
-    // Skip batal
     if (isShopeeCancel(status)) continue
 
-    // Voucher seller hanya dari baris pertama
-    const voucherSeller = parseShopeeNum(firstItem['Voucher Ditanggung Penjual'])
+    const voucherSeller = parseShopeeNum(firstRow['Voucher Ditanggung Penjual'])
 
-    items.forEach((item, idx) => {
-      const hargaAfterDisc = parseShopeeNum(item['Harga Setelah Diskon'])
-      const qty = Math.max(1, parseInt(String(item['Jumlah'] || '1'), 10))
+    // ── Fase 1: Expand semua combined SKUs, cek mapping ────
+    type ExpandedItem = {
+      sourceRow: Record<string, unknown>
+      rowNumber: number
+      sku: string           // individual internal SKU
+      hargaPerUnit: number  // harga per unit setelah split
+      qty: number
+    }
 
-      // Voucher hanya berlaku di baris pertama
-      const voucher = idx === 0 ? voucherSeller : 0
+    const expandedItems: ExpandedItem[] = []
+    let orderFailed = false
+    let failedSku = ''
+    let failedRowNumber = firstEntry.rowNumber
 
-      // Real Omzet = ((HargaAfterDisc - Voucher) - ((HargaAfterDisc - Voucher) * adminFee%)) * Qty
-      const basePrice = hargaAfterDisc - voucher
+    for (const { row, rowNumber } of entries) {
+      const rawSku = String(row['Nomor Referensi SKU'] || '').trim()
+      const hargaAfterDisc = parseShopeeNum(row['Harga Setelah Diskon'])
+      const qty = Math.max(1, parseInt(String(row['Jumlah'] || '1'), 10))
+
+      if (rawSku.includes('+')) {
+        const resolved = resolveCombinedSku(rawSku, skuMappingMap)
+        if (!resolved) {
+          orderFailed = true
+          failedSku = rawSku
+          failedRowNumber = rowNumber
+          break
+        }
+        // Hitung berapa item non-Kaos untuk bagi harga
+        const nonKaosCount = resolved.filter(s => !isKaosSku(s)).length || resolved.length
+        resolved.forEach(sku => {
+          const hargaPerUnit = isKaosSku(sku) ? 0 : Math.round(hargaAfterDisc / nonKaosCount)
+          expandedItems.push({ sourceRow: row, rowNumber, sku, hargaPerUnit, qty })
+        })
+      } else {
+        expandedItems.push({ sourceRow: row, rowNumber, sku: rawSku, hargaPerUnit: parseShopeeNum(row['Harga Setelah Diskon']), qty })
+      }
+    }
+
+    if (orderFailed) {
+      failed.push({
+        rowNumber: failedRowNumber,
+        orderNo,
+        sku: failedSku,
+        reason: 'SKU gabungan tidak ditemukan di DATABASE PRODUK GABUNGAN',
+      })
+      continue
+    }
+
+    // ── Fase 2: Distribusi voucher per unit ke semua expanded items ────
+    const totalQty = expandedItems.reduce((sum, item) => sum + item.qty, 0)
+    const voucherPerUnit = totalQty > 0 ? voucherSeller / totalQty : 0
+
+    for (const item of expandedItems) {
+      const basePrice = item.hargaPerUnit - voucherPerUnit
       const fee = basePrice * (shopeeAdminFee / 100)
-      const realOmzetPerItem = Math.round((basePrice - fee) * qty)
+      const realOmzet = Math.round((basePrice - fee) * item.qty)
+      const skuKey = item.sku.toLowerCase()
 
-      // SKU = Nomor Referensi SKU
-      const sku = String(item['Nomor Referensi SKU'] || '').trim() || null
-      const skuKey = sku?.toLowerCase() ?? ''
-
-      result.push({
+      orders.push({
         orderNo,
         status,
         platform: 'Shopee',
-        airwaybill: String(item['No. Resi'] || '').trim() || null,
-        orderCreatedAt: String(item['Waktu Dana Dilepaskan'] || item['Waktu Pesanan Dibuat'] || '').trim() || null,
-        sku,
-        productName: String(item['Nama Produk'] || '').trim() || null,
-        qty,
-        totalProductPrice: Math.round(hargaAfterDisc * qty),
-        realOmzet: realOmzetPerItem,
-        city: String(item['Kota/Kabupaten'] || '').trim() || null,
-        province: String(item['Provinsi'] || '').trim() || null,
-        buyerUsername: String(item['Username (Pembeli)'] || '').trim() || null,
-        receiverName: String(item['Nama Penerima'] || '').trim() || null,
-        phone: String(item['No. Telepon'] || '').trim() || null,
+        airwaybill: String(item.sourceRow['No. Resi'] || '').trim() || null,
+        orderCreatedAt: String(item.sourceRow['Waktu Dana Dilepaskan'] || item.sourceRow['Waktu Pesanan Dibuat'] || '').trim() || null,
+        sku: item.sku || null,
+        productName: item.sku || String(item.sourceRow['Nama Produk'] || '').trim() || null,
+        qty: item.qty,
+        totalProductPrice: Math.round(item.hargaPerUnit * item.qty),
+        realOmzet,
+        city: String(item.sourceRow['Kota/Kabupaten'] || '').trim() || null,
+        province: String(item.sourceRow['Provinsi'] || '').trim() || null,
+        buyerUsername: String(item.sourceRow['Username (Pembeli)'] || '').trim() || null,
+        receiverName: String(item.sourceRow['Nama Penerima'] || '').trim() || null,
+        phone: String(item.sourceRow['No. Telepon'] || '').trim() || null,
         hpp: hppMap.get(skuKey) ?? 0,
       })
-    })
+    }
   }
 
-  return result
+  return { orders, failed }
 }
 
 // ── TIKTOK PARSER ─────────────────────────────────────
@@ -143,19 +225,23 @@ export function parseShopeeOrders(
  *
  * Logika:
  * - Skip status batal/cancelled
- * - Real Omzet = SKU Subtotal After Discount * (1 - 14.1%)
- * - SKU = Seller SKU
- * - Setiap baris = 1 produk (TikTok sudah 1 row per SKU)
- * - Tanggal = Order settled time (bukan Created Time)
+ * - SKU mengandung "+": lookup di skuMappingMap, pecah jadi beberapa baris
+ *   - Tidak ditemukan di mapping → baris GAGAL
+ * - Harga (SKU Subtotal After Discount) dibagi rata ke item non-Kaos; Kaos = 0
+ * - Real Omzet = subtotalAfterDisc × (1 - adminFee%)
  */
 export function parseTikTokOrders(
   rawRows: Record<string, unknown>[],
   hppMap: Map<string, number>,
+  skuMappingMap: Map<string, string>,
   tiktokAdminFee = 14.1
-): ParsedOrder[] {
-  const result: ParsedOrder[] = []
+): ParseResult {
+  const orders: ParsedOrder[] = []
+  const failed: FailedRow[] = []
 
-  for (const row of rawRows) {
+  for (let i = 0; i < rawRows.length; i++) {
+    const row = rawRows[i]
+    const rowNumber = i + 1
     const orderNo = String(row['Order ID'] || '').trim()
     if (!orderNo) continue
 
@@ -164,34 +250,71 @@ export function parseTikTokOrders(
 
     const subtotalAfterDisc = parseTikTokNum(row['SKU Subtotal After Discount'])
     const qty = Math.max(1, parseInt(String(row['Quantity'] || '1'), 10))
+    const rawSku = String(row['Seller SKU'] || '').trim()
 
-    // Real Omzet = Subtotal After Discount * (1 - adminFee%)
-    const realOmzetPerItem = Math.round(subtotalAfterDisc * (1 - tiktokAdminFee / 100))
+    if (rawSku.includes('+')) {
+      const resolved = resolveCombinedSku(rawSku, skuMappingMap)
+      if (!resolved) {
+        failed.push({
+          rowNumber,
+          orderNo,
+          sku: rawSku,
+          reason: 'SKU gabungan tidak ditemukan di DATABASE PRODUK GABUNGAN',
+        })
+        continue
+      }
 
-    const sku = String(row['Seller SKU'] || '').trim() || null
-    const skuKey = sku?.toLowerCase() ?? ''
+      const nonKaosCount = resolved.filter(s => !isKaosSku(s)).length || resolved.length
+      for (const sku of resolved) {
+        const splitSubtotal = isKaosSku(sku) ? 0 : Math.round(subtotalAfterDisc / nonKaosCount)
+        const realOmzet = Math.round(splitSubtotal * (1 - tiktokAdminFee / 100))
+        const skuKey = sku.toLowerCase()
 
-    result.push({
-      orderNo,
-      status,
-      platform: 'TikTok',
-      airwaybill: String(row['Tracking ID'] || '').trim() || null,
-      orderCreatedAt: String(row['Order settled time'] || row['Created Time'] || '').trim() || null,
-      sku,
-      productName: String(row['Product Name'] || '').trim() || null,
-      qty,
-      totalProductPrice: subtotalAfterDisc,
-      realOmzet: realOmzetPerItem,
-      city: String(row['Regency and City'] || '').trim() || null,
-      province: String(row['Province'] || '').trim() || null,
-      buyerUsername: String(row['Buyer Username'] || '').trim() || null,
-      receiverName: String(row['Recipient'] || '').trim() || null,
-      phone: String(row['Phone #'] || '').trim() || null,
-      hpp: hppMap.get(skuKey) ?? 0,
-    })
+        orders.push({
+          orderNo,
+          status,
+          platform: 'TikTok',
+          airwaybill: String(row['Tracking ID'] || '').trim() || null,
+          orderCreatedAt: String(row['Order settled time'] || row['Created Time'] || '').trim() || null,
+          sku: sku || null,
+          productName: sku || String(row['Product Name'] || '').trim() || null,
+          qty,
+          totalProductPrice: splitSubtotal,
+          realOmzet,
+          city: String(row['Regency and City'] || '').trim() || null,
+          province: String(row['Province'] || '').trim() || null,
+          buyerUsername: String(row['Buyer Username'] || '').trim() || null,
+          receiverName: String(row['Recipient'] || '').trim() || null,
+          phone: String(row['Phone #'] || '').trim() || null,
+          hpp: hppMap.get(skuKey) ?? 0,
+        })
+      }
+    } else {
+      const realOmzet = Math.round(subtotalAfterDisc * (1 - tiktokAdminFee / 100))
+      const skuKey = rawSku.toLowerCase()
+
+      orders.push({
+        orderNo,
+        status,
+        platform: 'TikTok',
+        airwaybill: String(row['Tracking ID'] || '').trim() || null,
+        orderCreatedAt: String(row['Order settled time'] || row['Created Time'] || '').trim() || null,
+        sku: rawSku || null,
+        productName: String(row['Product Name'] || '').trim() || null,
+        qty,
+        totalProductPrice: subtotalAfterDisc,
+        realOmzet,
+        city: String(row['Regency and City'] || '').trim() || null,
+        province: String(row['Province'] || '').trim() || null,
+        buyerUsername: String(row['Buyer Username'] || '').trim() || null,
+        receiverName: String(row['Recipient'] || '').trim() || null,
+        phone: String(row['Phone #'] || '').trim() || null,
+        hpp: hppMap.get(skuKey) ?? 0,
+      })
+    }
   }
 
-  return result
+  return { orders, failed }
 }
 
 // ── AUTO DETECT PLATFORM ───────────────────────────────
