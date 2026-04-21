@@ -140,29 +140,18 @@ export async function GET(request: NextRequest) {
   }
 
   return apiSuccess({
-    periode: { from: dateFrom, to: dateTo },
-    operasional: {
-      penerimaanPenjualan,
-      penerimaanLain,
-      bebanOperasional,
-      pembayaranVendor,
-      net: netKasOperasional,
-    },
-    investasi: {
-      pembelianAset,
-      net: netKasInvestasi,
-    },
-    pendanaan: {
-      suntikanModal,
-      terimaPinjaman,
-      bayarPinjaman,
-      prive,
-      terimaPiutang,
-      beriPiutang,
-      net: netKasPendanaan,
-    },
+    // Flat keys sesuai yang dibaca UI (laporan.tsx)
+    arusKasOperasiMasuk: penerimaanPenjualan + penerimaanLain,
+    arusKasOperasiKeluar: Math.abs(bebanOperasional + pembayaranVendor),
+    netOperasi: netKasOperasional,
+    pembelianAsetTetap: Math.abs(pembelianAset),
+    netInvestasi: netKasInvestasi,
+    suntikanModal,
+    prive: Math.abs(prive),
+    netPendanaan: netKasPendanaan,
+    kenaikanKasBersih: netPerubahanKas,
+    // Detail tambahan
     saldoAwalKas,
-    netPerubahanKas,
     saldoAkhirKas,
     saldoAktual,
     isBalance: Math.abs(saldoAkhirKas - saldoAktual) < 1,
