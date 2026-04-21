@@ -54,15 +54,15 @@ export async function GET(request: NextRequest) {
   }
   const totalFee = feeShopee + feeTikTok + feeAms + feeLainnya
 
-  // ── 2. HPP — dari Order yang trxDate-nya masuk periode (di-set saat upload payout) ──
-  // Order.hpp sudah di-set saat upload order CSV (lookup dari masterProduct saat itu).
-  // Kita TIDAK lookup ulang ke masterProduct karena Order.sku berisi nama SKU marketplace
-  // (mis: "Arslan Black x Grey - S") sedangkan masterProduct.sku berisi kode internal
-  // (mis: ELY01) — keduanya tidak akan pernah cocok.
+  // ── 2. HPP — dari Order yang payoutnya cair di periode ini ──
+  // Filter via relasi payout.releasedDate agar sejajar dengan pencairanBersih di atas.
+  // Order.hpp di-set saat upload order CSV (lookup dari masterProduct saat itu).
   const paidOrders = await prisma.order.findMany({
     where: {
-      trxDate: { gte: fromDate, lte: toDate },
       sku: { not: null },
+      payout: {
+        releasedDate: { gte: fromDate, lte: toDate },
+      },
     },
     select: { sku: true, qty: true, hpp: true },
   })
