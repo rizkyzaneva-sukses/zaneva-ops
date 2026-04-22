@@ -84,6 +84,10 @@ enum WalletTrxType {
   MODAL_MASUK
   PRIVE
   INVESTASI
+  VENDOR_PAYMENT
+  PENGEMBALIAN_MODAL
+  BAYAR_UTANG
+  TERIMA_PIUTANG_ND
 }
 
 enum MasterCategoryType {
