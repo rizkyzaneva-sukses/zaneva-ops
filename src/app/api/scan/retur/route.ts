@@ -31,15 +31,32 @@ export async function POST(request: NextRequest) {
   if (!orderNo) return apiError('orderNo tidak boleh kosong')
   if (!Array.isArray(items) || items.length === 0) return apiError('Items tidak boleh kosong')
 
-  // Validasi semua SKU ada di MasterProduct
-  const skus = [...new Set(items.map(i => i.sku))]
-  const products = await prisma.masterProduct.findMany({
-    where: { sku: { in: skus } },
+  // Resolve SKU: Order.sku bisa berisi nama marketplace (mis. "Airflow Navy - XXL"),
+  // bukan internal SKU (mis. ELY01). Coba match by sku dulu, fallback ke productName.
+  const rawSkus = [...new Set(items.map(i => i.sku))]
+  const allProducts = await prisma.masterProduct.findMany({
+    where: {
+      OR: [
+        { sku: { in: rawSkus } },
+        { productName: { in: rawSkus, mode: 'insensitive' } },
+      ],
+    },
     select: { sku: true, productName: true },
   })
-  const foundSkus = new Set(products.map(p => p.sku))
-  const missing = skus.filter(s => !foundSkus.has(s))
+  // Build map: input sku (atau productName) → internal sku
+  const skuResolutionMap = new Map<string, string>()
+  for (const p of allProducts) {
+    skuResolutionMap.set(p.sku.toLowerCase(), p.sku)
+    skuResolutionMap.set(p.productName.toLowerCase(), p.sku)
+  }
+  const missing = rawSkus.filter(s => !skuResolutionMap.has(s.toLowerCase()))
   if (missing.length > 0) return apiError(`SKU tidak ditemukan: ${missing.join(', ')}`)
+
+  // Resolve setiap item ke internal SKU
+  const resolvedItems = items.map(i => ({
+    ...i,
+    sku: skuResolutionMap.get(i.sku.toLowerCase()) ?? i.sku,
+  }))
 
   // Cari order yang akan dir-retur
   const order = await prisma.order.findFirst({
@@ -51,7 +68,7 @@ export async function POST(request: NextRequest) {
 
   await prisma.$transaction(async (tx) => {
     // 1. Buat entri InventoryLedger untuk setiap item
-    for (const item of items) {
+    for (const item of resolvedItems) {
       const note = `Retur ${orderNo} - Kondisi: ${item.kondisi}${item.note ? ` - Catatan: ${item.note}` : ''}`
       await tx.inventoryLedger.create({
         data: {
@@ -73,7 +90,7 @@ export async function POST(request: NextRequest) {
     })
 
     // 3. Buat OrderScanLog dengan detail kondisi
-    const kondisiSummary = items.map(i => `${i.sku}: ${i.kondisi}${i.note ? ` (${i.note})` : ''}`).join(', ')
+    const kondisiSummary = resolvedItems.map(i => `${i.sku}: ${i.kondisi}${i.note ? ` (${i.note})` : ''}`).join(', ')
     await tx.orderScanLog.create({
       data: {
         orderId: order.id,
@@ -85,7 +102,7 @@ export async function POST(request: NextRequest) {
     })
 
     // 4. Buat AuditLog
-    const totalQty = items.reduce((s, i) => s + i.qtyRetur, 0)
+    const totalQty = resolvedItems.reduce((s, i) => s + i.qtyRetur, 0)
     await tx.auditLog.create({
       data: {
         entityType: 'Order',
@@ -96,7 +113,7 @@ export async function POST(request: NextRequest) {
           event: 'RETUR',
           status: 'RETUR',
           airwaybill: airwaybill || order.airwaybill,
-          items: items.map(i => ({
+          items: resolvedItems.map(i => ({
             sku: i.sku,
             qtyRetur: i.qtyRetur,
             kondisi: i.kondisi,
@@ -111,7 +128,7 @@ export async function POST(request: NextRequest) {
   })
 
   // Summary untuk toast
-  const skuSummary = items.map(i => `${i.sku} +${i.qtyRetur}`).join(', ')
+  const skuSummary = resolvedItems.map(i => `${i.sku} +${i.qtyRetur}`).join(', ')
   return apiSuccess({
     message: `Retur berhasil — stok ${skuSummary}. Status order: RETUR`,
     orderNo,
