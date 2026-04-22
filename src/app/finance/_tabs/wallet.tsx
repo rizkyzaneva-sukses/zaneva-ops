@@ -105,9 +105,9 @@ function CategoryDropdown({ value, onChange, grouped, allCategories, onAddNew }:
 
 function AddCategoryModal({ onClose, onCreated }: { onClose: () => void; onCreated: (name: string) => void }) {
   const { toast } = useToast()
-  const [form, setForm] = useState({ name: '', group: 'Beban Operasional' })
+  const [form, setForm] = useState({ name: '', group: 'Beban Operasional', isBeban: true })
   const [loading, setLoading] = useState(false)
-  const GROUPS = ['Beban Pokok Penjualan', 'Beban Operasional', 'Beban Lain-lain']
+  const GROUPS = ['Beban Pokok Penjualan', 'Beban Operasional', 'Beban Lain-lain', 'Non-Beban / Aset']
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault(); setLoading(true)
@@ -140,6 +140,19 @@ function AddCategoryModal({ onClose, onCreated }: { onClose: () => void; onCreat
               className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-200 focus:outline-none">
               {GROUPS.map(g => <option key={g} value={g}>{g}</option>)}
             </select>
+          </div>
+          <div>
+            <label className="block text-xs text-zinc-500 mb-1.5">Pengaruh ke L/R</label>
+            <div className="flex gap-2">
+              <button type="button" onClick={() => setForm(p => ({...p, isBeban: true}))}
+                className={`flex-1 rounded-lg px-2 py-2 text-xs font-medium border transition-all ${form.isBeban ? 'bg-red-900/40 border-red-600 text-red-300' : 'bg-zinc-800 border-zinc-700 text-zinc-500'}`}>
+                📊 Masuk L/R
+              </button>
+              <button type="button" onClick={() => setForm(p => ({...p, isBeban: false}))}
+                className={`flex-1 rounded-lg px-2 py-2 text-xs font-medium border transition-all ${!form.isBeban ? 'bg-blue-900/40 border-blue-600 text-blue-300' : 'bg-zinc-800 border-zinc-700 text-zinc-500'}`}>
+                📦 Tidak masuk L/R
+              </button>
+            </div>
           </div>
           <div className="flex gap-2 pt-1">
             <button type="button" onClick={onClose} className="flex-1 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-lg py-2 text-sm">Batal</button>

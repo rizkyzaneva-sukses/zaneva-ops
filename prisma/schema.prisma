@@ -756,6 +756,7 @@ model MasterExpenseCategory {
 
   name        String   @unique
   group       String
+  isBeban     Boolean  @default(true) @map("is_beban")
   isActive    Boolean  @default(true) @map("is_active")
   isSystem    Boolean  @default(false) @map("is_system")
 
