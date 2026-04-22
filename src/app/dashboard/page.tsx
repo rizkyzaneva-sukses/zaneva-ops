@@ -73,7 +73,7 @@ function AgingBars({ aging }: { aging: { label: string; count: number }[] }) {
 }
 
 // ── Platform omzet breakdown ───────────────────────────
-function PlatformBreakdown({ data }: { data: any[] }) {
+function PlatformBreakdown({ data, showGp = true }: { data: any[]; showGp?: boolean }) {
   if (!data?.length) return <p className="text-zinc-600 text-sm">Belum ada data</p>
   const total = data.reduce((s, p) => s + p.realOmzet, 0)
   return (
@@ -91,9 +91,11 @@ function PlatformBreakdown({ data }: { data: any[] }) {
             </div>
             <div className="text-right">
               <p className="text-xs font-medium text-white">{formatRupiah(p.realOmzet, true)}</p>
-              <p className="text-[10px] text-emerald-600">
-                GP: {formatRupiah(p.grossProfit, true)}
-              </p>
+              {showGp && (
+                <p className="text-[10px] text-emerald-600">
+                  GP: {formatRupiah(p.grossProfit, true)}
+                </p>
+              )}
             </div>
           </div>
           <div className="bg-zinc-800 rounded-full h-1.5">
@@ -115,6 +117,7 @@ function PlatformBreakdown({ data }: { data: any[] }) {
 export default function DashboardPage() {
   const { user } = useAuth()
   const { canEdit } = usePermission()
+  const isStaffOnly = user?.userRole === 'STAFF'
   const defaultRange = getDefaultRange()
   const [dateFrom, setDateFrom] = useState(defaultRange.from)
   const [dateTo, setDateTo] = useState(defaultRange.to)
@@ -218,13 +221,23 @@ export default function DashboardPage() {
           icon={Clock}
           color="yellow"
         />
-        <StatCard
-          label="Gross Profit"
-          value={formatRupiah((data?.omzet?.total ?? 0) - (data?.omzet?.totalHpp ?? 0), true)}
-          sub="omzet - HPP"
-          icon={ArrowUpRight}
-          color="blue"
-        />
+        {!isStaffOnly ? (
+          <StatCard
+            label="Gross Profit"
+            value={formatRupiah((data?.omzet?.total ?? 0) - (data?.omzet?.totalHpp ?? 0), true)}
+            sub="omzet - HPP"
+            icon={ArrowUpRight}
+            color="blue"
+          />
+        ) : (
+          <StatCard
+            label="Total Order"
+            value={String((data?.orders?.terkirim ?? 0) + totalAgingBacklog)}
+            sub="terkirim + pending"
+            icon={ShoppingCart}
+            color="blue"
+          />
+        )}
         <StatCard
           label="Stok Kritis"
           value={String(data?.stock?.lowStockCount ?? 0)}
@@ -298,14 +311,16 @@ export default function DashboardPage() {
           {isLoading ? (
             <div className="space-y-2">{[1,2].map(i => <div key={i} className="h-8 bg-zinc-800 rounded animate-pulse" />)}</div>
           ) : (
-            <PlatformBreakdown data={data?.omzet?.byPlatform ?? []} />
+            <PlatformBreakdown data={data?.omzet?.byPlatform ?? []} showGp={!isStaffOnly} />
           )}
-          <div className="mt-3 pt-3 border-t border-zinc-800 flex justify-between">
-            <span className="text-xs text-zinc-500">Total GP</span>
-            <span className="text-xs font-bold text-emerald-400">
-              {formatRupiah((data?.omzet?.total ?? 0) - (data?.omzet?.totalHpp ?? 0), true)}
-            </span>
-          </div>
+          {!isStaffOnly && (
+            <div className="mt-3 pt-3 border-t border-zinc-800 flex justify-between">
+              <span className="text-xs text-zinc-500">Total GP</span>
+              <span className="text-xs font-bold text-emerald-400">
+                {formatRupiah((data?.omzet?.total ?? 0) - (data?.omzet?.totalHpp ?? 0), true)}
+              </span>
+            </div>
+          )}
         </div>
 
         {/* Top provinsi + Payout summary */}

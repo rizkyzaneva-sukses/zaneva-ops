@@ -29,7 +29,7 @@ const NAV_ITEMS: NavItem[] = [
   { href: '/produk-gabungan',  label: 'Produk Gabungan',  icon: GitMerge,  roles: ['OWNER', 'FINANCE'] },
   { href: '/procurement',      label: 'Procurement',      icon: Truck,     roles: ['OWNER', 'FINANCE'] },
   { href: '/finance',     label: 'Finance Room', icon: Wallet,  roles: ['OWNER', 'FINANCE'] },
-  { href: '/crm', label: 'CRM', icon: Users, roles: ['OWNER', 'FINANCE', 'STAFF'] },
+  { href: '/crm', label: 'CRM', icon: Users, roles: ['OWNER', 'FINANCE'] },
   { href: '/alerts', label: 'Alerts', icon: AlertTriangle, roles: ['OWNER', 'FINANCE'] },
   {
     href: '/owner-room',

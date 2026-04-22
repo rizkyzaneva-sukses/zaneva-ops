@@ -160,6 +160,8 @@ function DeleteConfirmModal({ products, onConfirm, onClose, loading }: { product
 
 export function MasterProdukTab() {
   const qc = useQueryClient(); const { toast } = useToast(); const { user } = useAuth()
+  const hideHpp   = user?.userRole === 'STAFF'
+  const canManage = user?.userRole === 'OWNER' || user?.userRole === 'FINANCE'
   const [search, setSearch]           = useState('')
   const [page, setPage]               = useState(1)
   const [modal, setModal]             = useState<'add' | 'edit' | 'import' | null>(null)
@@ -231,17 +233,19 @@ export function MasterProdukTab() {
           <input value={search} onChange={e => { setSearch(e.target.value); setPage(1) }} placeholder="Cari SKU atau nama produk..."
             className="w-full bg-zinc-900 border border-zinc-800 rounded-lg pl-8 pr-3 py-2 text-sm text-zinc-300 placeholder-zinc-600 focus:outline-none focus:ring-2 focus:ring-emerald-500/50" />
         </div>
-        <div className="flex gap-2">
-          <button onClick={handleExport} disabled={exporting} className="flex items-center gap-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-lg px-3 py-2 text-sm border border-zinc-700 disabled:opacity-50">
-            {exporting ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}Export All
-          </button>
-          <button onClick={() => setModal('import')} className="flex items-center gap-2 bg-zinc-800 hover:bg-zinc-700 text-blue-400 rounded-lg px-3 py-2 text-sm border border-zinc-700">
-            <Upload size={14} />Import CSV
-          </button>
-          <button onClick={() => setModal('add')} className="flex items-center gap-2 bg-emerald-700 hover:bg-emerald-600 text-white rounded-lg px-3 py-2 text-sm font-medium">
-            <Plus size={14} />Tambah Produk
-          </button>
-        </div>
+        {canManage && (
+          <div className="flex gap-2">
+            <button onClick={handleExport} disabled={exporting} className="flex items-center gap-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-lg px-3 py-2 text-sm border border-zinc-700 disabled:opacity-50">
+              {exporting ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}Export All
+            </button>
+            <button onClick={() => setModal('import')} className="flex items-center gap-2 bg-zinc-800 hover:bg-zinc-700 text-blue-400 rounded-lg px-3 py-2 text-sm border border-zinc-700">
+              <Upload size={14} />Import CSV
+            </button>
+            <button onClick={() => setModal('add')} className="flex items-center gap-2 bg-emerald-700 hover:bg-emerald-600 text-white rounded-lg px-3 py-2 text-sm font-medium">
+              <Plus size={14} />Tambah Produk
+            </button>
+          </div>
+        )}
       </div>
 
       {selectedIds.length > 0 && user?.userRole === 'OWNER' && (
@@ -265,14 +269,16 @@ export function MasterProdukTab() {
                 checked={products.length > 0 && selectedIds.length === products.length}
                 onChange={e => { if (e.target.checked) setSelectedIds(products.map((p: any) => p.id)); else setSelectedIds([]) }} /></th>}
               <th className="w-32">SKU</th><th>Nama Produk</th><th className="w-24">Kategori</th>
-              <th className="w-16 text-center">Unit</th><th className="w-24 text-right">HPP</th>
-              <th className="w-16 text-center">ROP</th><th className="w-20">Status</th><th className="w-16"></th>
+              <th className="w-16 text-center">Unit</th>
+              {!hideHpp && <th className="w-24 text-right">HPP</th>}
+              <th className="w-16 text-center">ROP</th><th className="w-20">Status</th>
+              {canManage && <th className="w-16"></th>}
             </tr></thead>
             <tbody>
               {isLoading ? Array.from({ length: 8 }).map((_, i) => (
-                <tr key={i}>{Array.from({ length: user?.userRole === 'OWNER' ? 9 : 8 }).map((_, j) => <td key={j}><div className="h-4 bg-zinc-800 rounded animate-pulse" /></td>)}</tr>
+                <tr key={i}>{Array.from({ length: (user?.userRole === 'OWNER' ? 9 : 8) - (hideHpp ? 1 : 0) - (canManage ? 0 : 1) }).map((_, j) => <td key={j}><div className="h-4 bg-zinc-800 rounded animate-pulse" /></td>)}</tr>
               )) : products.length === 0 ? (
-                <tr><td colSpan={user?.userRole === 'OWNER' ? 9 : 8} className="text-center py-10 text-zinc-600">Tidak ada produk</td></tr>
+                <tr><td colSpan={(user?.userRole === 'OWNER' ? 9 : 8) - (hideHpp ? 1 : 0) - (canManage ? 0 : 1)} className="text-center py-10 text-zinc-600">Tidak ada produk</td></tr>
               ) : products.map((p: any) => (
                 <tr key={p.id} className={selectedIds.includes(p.id) ? 'bg-zinc-800/50' : ''}>
                   {user?.userRole === 'OWNER' && (
@@ -283,10 +289,10 @@ export function MasterProdukTab() {
                   <td><p className="text-sm text-zinc-200">{p.productName}</p></td>
                   <td><span className="text-xs text-zinc-500">{p.categoryName || '—'}</span></td>
                   <td className="text-center text-xs text-zinc-400">{p.unit}</td>
-                  <td className="text-right text-xs text-zinc-300">{p.hpp ? `Rp ${p.hpp.toLocaleString('id')}` : '—'}</td>
+                  {!hideHpp && <td className="text-right text-xs text-zinc-300">{p.hpp ? `Rp ${p.hpp.toLocaleString('id')}` : '—'}</td>}
                   <td className="text-center text-xs text-zinc-400">{p.rop}</td>
                   <td>{p.isActive ? <span className="badge-success">Aktif</span> : <span className="badge-muted">Nonaktif</span>}</td>
-                  <td><button onClick={() => { setSelected(p); setModal('edit') }} className="p-1.5 rounded hover:bg-zinc-800 text-zinc-600 hover:text-zinc-300"><Edit2 size={12} /></button></td>
+                  {canManage && <td><button onClick={() => { setSelected(p); setModal('edit') }} className="p-1.5 rounded hover:bg-zinc-800 text-zinc-600 hover:text-zinc-300"><Edit2 size={12} /></button></td>}
                 </tr>
               ))}
             </tbody>

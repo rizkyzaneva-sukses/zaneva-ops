@@ -4,6 +4,7 @@ import { useQuery } from '@tanstack/react-query'
 import { useState, useMemo } from 'react'
 import { formatDate, downloadCSV } from '@/lib/utils'
 import { Package, Search, Download, RefreshCw, X, ArrowUpDown, ArrowUp, ArrowDown, History } from 'lucide-react'
+import { useAuth } from '@/components/providers'
 
 type SortDir = 'asc' | 'desc'
 type SortCol = 'sku' | 'productName' | 'soh' | 'rop' | 'hpp' | 'value' | null
@@ -73,6 +74,8 @@ function StockBadge({ status }: { status: string }) {
 }
 
 export function StokOverviewTab() {
+  const { user } = useAuth()
+  const hideHpp = user?.userRole === 'STAFF'
   const [search, setSearch] = useState('')
   const [filter, setFilter] = useState<'all' | 'low' | 'empty'>('all')
   const [categoryFilter, setCategoryFilter] = useState('')
@@ -119,9 +122,11 @@ export function StokOverviewTab() {
     })
   }, [filtered, sortCol, sortDir])
 
-  const handleExport = () => downloadCSV('stok-inventory.csv', sorted.map((p: any) => ({
-    SKU: p.sku, 'Nama Produk': p.productName, Kategori: p.categoryName || '', Satuan: p.unit, SOH: p.soh, ROP: p.rop, Status: p.stockStatus, HPP: p.hpp,
-  })))
+  const handleExport = () => downloadCSV('stok-inventory.csv', sorted.map((p: any) => {
+    const row: Record<string, any> = { SKU: p.sku, 'Nama Produk': p.productName, Kategori: p.categoryName || '', Satuan: p.unit, SOH: p.soh, ROP: p.rop, Status: p.stockStatus }
+    if (!hideHpp) { row.HPP = p.hpp; row['Nilai Stok'] = p.soh * p.hpp }
+    return row
+  }))
 
   return (
     <>
@@ -174,17 +179,17 @@ export function StokOverviewTab() {
               <th className="w-28">Kategori</th>
               <th className="w-20 text-center"><button onClick={() => handleSort('soh')} className="flex items-center mx-auto hover:text-zinc-200">SOH<SortIcon col="soh" sortCol={sortCol} sortDir={sortDir} /></button></th>
               <th className="w-20 text-center"><button onClick={() => handleSort('rop')} className="flex items-center mx-auto hover:text-zinc-200">ROP<SortIcon col="rop" sortCol={sortCol} sortDir={sortDir} /></button></th>
-              <th className="w-20 text-right"><button onClick={() => handleSort('hpp')} className="flex items-center ml-auto hover:text-zinc-200">HPP<SortIcon col="hpp" sortCol={sortCol} sortDir={sortDir} /></button></th>
-              <th className="w-28 text-right"><button onClick={() => handleSort('value')} className="flex items-center ml-auto hover:text-zinc-200">Value<SortIcon col="value" sortCol={sortCol} sortDir={sortDir} /></button></th>
+              {!hideHpp && <th className="w-20 text-right"><button onClick={() => handleSort('hpp')} className="flex items-center ml-auto hover:text-zinc-200">HPP<SortIcon col="hpp" sortCol={sortCol} sortDir={sortDir} /></button></th>}
+              {!hideHpp && <th className="w-28 text-right"><button onClick={() => handleSort('value')} className="flex items-center ml-auto hover:text-zinc-200">Nilai Stok<SortIcon col="value" sortCol={sortCol} sortDir={sortDir} /></button></th>}
               <th className="w-24">Status</th>
               <th className="w-28">Last Opname</th>
               <th className="w-16">Aksi</th>
             </tr></thead>
             <tbody>
               {isLoading ? Array.from({ length: 10 }).map((_, i) => (
-                <tr key={i}>{Array.from({ length: 9 }).map((_, j) => <td key={j}><div className="h-4 bg-zinc-800 rounded animate-pulse" /></td>)}</tr>
+                <tr key={i}>{Array.from({ length: hideHpp ? 7 : 9 }).map((_, j) => <td key={j}><div className="h-4 bg-zinc-800 rounded animate-pulse" /></td>)}</tr>
               )) : sorted.length === 0 ? (
-                <tr><td colSpan={9} className="text-center py-12 text-zinc-600"><Package size={32} className="mx-auto mb-2 opacity-30" /><p>Tidak ada produk</p></td></tr>
+                <tr><td colSpan={hideHpp ? 7 : 9} className="text-center py-12 text-zinc-600"><Package size={32} className="mx-auto mb-2 opacity-30" /><p>Tidak ada produk</p></td></tr>
               ) : sorted.map((p: any) => (
                 <tr key={p.id}>
                   <td><span className="font-mono text-xs text-zinc-400">{p.sku}</span></td>
@@ -198,8 +203,8 @@ export function StokOverviewTab() {
                     <span className="text-zinc-600 text-[10px] ml-0.5">{p.unit}</span>
                   </td>
                   <td className="text-center text-xs text-zinc-500">{p.rop}</td>
-                  <td className="text-right text-xs text-zinc-400">{p.hpp ? `Rp ${p.hpp.toLocaleString('id')}` : '—'}</td>
-                  <td className="text-right text-xs text-zinc-500">{(p.soh > 0 && p.hpp > 0) ? `Rp ${(p.soh * p.hpp).toLocaleString('id')}` : '—'}</td>
+                  {!hideHpp && <td className="text-right text-xs text-zinc-400">{p.hpp ? `Rp ${p.hpp.toLocaleString('id')}` : '—'}</td>}
+                  {!hideHpp && <td className="text-right text-xs text-zinc-500">{(p.soh > 0 && p.hpp > 0) ? `Rp ${(p.soh * p.hpp).toLocaleString('id')}` : '—'}</td>}
                   <td><StockBadge status={p.stockStatus} /></td>
                   <td className="text-[10px] text-zinc-600">{p.lastOpnameDate ? formatDate(p.lastOpnameDate) : '—'}</td>
                   <td>
