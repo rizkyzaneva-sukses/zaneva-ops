@@ -7,7 +7,7 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { useToast } from '@/components/ui/toaster'
-import { ScanLine, Plus, Minus, CheckCircle, Trash2, Upload, Search, X, AlertCircle } from 'lucide-react'
+import { ScanLine, Plus, Minus, CheckCircle, Trash2, Upload, Search, X, AlertCircle, Camera, CameraOff } from 'lucide-react'
 import Papa from 'papaparse'
 
 type TabKey = 'masuk' | 'keluar' | 'retur' | 'retur_pembelian'
@@ -179,6 +179,164 @@ function ReturModal({ order, allProducts, onConfirm, onClose }: {
   )
 }
 
+// ── Camera scanner untuk Scan Retur ───────────────────
+type CameraState = 'idle' | 'requesting' | 'granted' | 'denied' | 'unsupported'
+
+function CameraReturScanner({ onResult, onClose }: {
+  onResult: (value: string) => void
+  onClose: () => void
+}) {
+  const videoRef   = useRef<HTMLVideoElement>(null)
+  const streamRef  = useRef<MediaStream | null>(null)
+  const rafRef     = useRef<number | null>(null)
+  const doneRef    = useRef(false)
+  const [camState, setCamState] = useState<CameraState>('idle')
+  const [hint, setHint] = useState('Arahkan kamera ke barcode resi')
+
+  const stopCamera = useCallback(() => {
+    if (rafRef.current) cancelAnimationFrame(rafRef.current)
+    streamRef.current?.getTracks().forEach(t => t.stop())
+    streamRef.current = null
+  }, [])
+
+  const startScanLoop = useCallback((detector: any) => {
+    const tick = async () => {
+      if (doneRef.current || !videoRef.current) return
+      try {
+        const barcodes: { rawValue: string }[] = await detector.detect(videoRef.current)
+        if (barcodes.length > 0) {
+          doneRef.current = true
+          beep(1)
+          stopCamera()
+          onResult(barcodes[0].rawValue)
+          return
+        }
+      } catch { /* frame skip */ }
+      rafRef.current = requestAnimationFrame(tick)
+    }
+    rafRef.current = requestAnimationFrame(tick)
+  }, [onResult, stopCamera])
+
+  const startCamera = useCallback(async () => {
+    // Cek dukungan BarcodeDetector
+    if (!('BarcodeDetector' in window)) {
+      setCamState('unsupported')
+      return
+    }
+    setCamState('requesting')
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 } },
+      })
+      streamRef.current = stream
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream
+        await videoRef.current.play()
+      }
+      const detector = new (window as any).BarcodeDetector({
+        formats: ['code_128', 'code_39', 'code_93', 'codabar', 'ean_13', 'ean_8', 'qr_code'],
+      })
+      setCamState('granted')
+      setHint('Arahkan ke barcode resi...')
+      startScanLoop(detector)
+    } catch (err: any) {
+      if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+        setCamState('denied')
+      } else {
+        setCamState('unsupported')
+      }
+    }
+  }, [startScanLoop])
+
+  useEffect(() => {
+    startCamera()
+    return stopCamera
+  }, [startCamera, stopCamera])
+
+  return (
+    <div className="fixed inset-0 z-[60] flex flex-col bg-black">
+      {/* Header */}
+      <div className="flex items-center justify-between px-4 py-3 bg-zinc-900/90 backdrop-blur-sm border-b border-zinc-800">
+        <div className="flex items-center gap-2">
+          <Camera size={16} className="text-emerald-400" />
+          <span className="text-sm font-medium text-white">Scan Resi</span>
+        </div>
+        <button onClick={() => { stopCamera(); onClose() }}
+          className="p-1.5 rounded-lg bg-zinc-800 text-zinc-400 hover:text-white transition-colors">
+          <X size={16} />
+        </button>
+      </div>
+
+      {/* Camera view */}
+      <div className="flex-1 relative flex items-center justify-center bg-black">
+        <video ref={videoRef} className="w-full h-full object-cover" muted playsInline />
+
+        {/* Viewfinder overlay */}
+        {camState === 'granted' && (
+          <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+            <div className="relative w-80 h-32">
+              {/* Corner brackets */}
+              {['top-0 left-0', 'top-0 right-0', 'bottom-0 left-0', 'bottom-0 right-0'].map((pos, i) => (
+                <div key={i} className={`absolute w-6 h-6 border-emerald-400 ${pos}
+                  ${i < 2 ? 'border-t-2' : 'border-b-2'}
+                  ${i % 2 === 0 ? 'border-l-2' : 'border-r-2'}`} />
+              ))}
+              {/* Scan line animation */}
+              <div className="absolute inset-x-0 top-1/2 h-0.5 bg-emerald-400/70 animate-pulse" />
+            </div>
+          </div>
+        )}
+
+        {/* State overlays */}
+        {camState === 'requesting' && (
+          <div className="absolute inset-0 flex items-center justify-center bg-black/70">
+            <div className="text-center">
+              <div className="w-12 h-12 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin mx-auto mb-3" />
+              <p className="text-white text-sm">Memulai kamera...</p>
+            </div>
+          </div>
+        )}
+
+        {camState === 'denied' && (
+          <div className="absolute inset-0 flex items-center justify-center bg-zinc-900">
+            <div className="text-center px-8 max-w-sm">
+              <CameraOff size={40} className="mx-auto mb-4 text-red-400" />
+              <p className="text-white font-semibold mb-2">Izin Kamera Ditolak</p>
+              <p className="text-zinc-400 text-sm mb-6 leading-relaxed">
+                Buka <strong className="text-white">Pengaturan browser</strong> → izinkan akses kamera untuk situs ini, lalu coba lagi.
+              </p>
+              <button onClick={startCamera}
+                className="w-full py-3 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-sm font-semibold transition-colors flex items-center justify-center gap-2">
+                <Camera size={16} />Izinkan Kamera &amp; Coba Lagi
+              </button>
+            </div>
+          </div>
+        )}
+
+        {camState === 'unsupported' && (
+          <div className="absolute inset-0 flex items-center justify-center bg-zinc-900">
+            <div className="text-center px-8 max-w-sm">
+              <CameraOff size={40} className="mx-auto mb-4 text-yellow-400" />
+              <p className="text-white font-semibold mb-2">Kamera Tidak Didukung</p>
+              <p className="text-zinc-400 text-sm leading-relaxed">
+                Browser ini belum mendukung scan kamera. Gunakan <strong className="text-white">Chrome di Android</strong> untuk fitur ini.
+              </p>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Bottom hint */}
+      {camState === 'granted' && (
+        <div className="px-4 py-3 bg-zinc-900/90 backdrop-blur-sm text-center">
+          <p className="text-xs text-zinc-400">{hint}</p>
+          <p className="text-[10px] text-zinc-600 mt-0.5">Barcode resi akan otomatis terdeteksi</p>
+        </div>
+      )}
+    </div>
+  )
+}
+
 function TabRetur({ allProducts }: { allProducts: any[] }) {
   const qc = useQueryClient()
   const { toast } = useToast()
@@ -188,6 +346,7 @@ function TabRetur({ allProducts }: { allProducts: any[] }) {
   const [error, setError]           = useState('')
   const [order, setOrder]           = useState<ReturOrder | null>(null)
   const [confirming, setConfirming] = useState(false)
+  const [showCamera, setShowCamera] = useState(false)
 
   useEffect(() => { inputRef.current?.focus() }, [])
 
@@ -202,6 +361,23 @@ function TabRetur({ allProducts }: { allProducts: any[] }) {
       beep(1); setOrder(json.data)
     } catch (err: any) { setError(err.message || 'Gagal fetch order'); beep(3) }
     finally { setLoading(false) }
+  }
+
+  const handleCameraResult = (value: string) => {
+    setShowCamera(false)
+    setAirwaybill(value)
+    // Auto-submit setelah kamera berhasil scan
+    setTimeout(async () => {
+      const val = value.trim(); if (!val) return
+      setLoading(true); setError(''); setOrder(null)
+      try {
+        const res  = await fetch(`/api/orders/by-resi?airwaybill=${encodeURIComponent(val)}`)
+        const json = await res.json()
+        if (!res.ok) { setError(json.error || 'Order tidak ditemukan'); beep(3); return }
+        beep(1); setOrder(json.data)
+      } catch (err: any) { setError(err.message || 'Gagal fetch order'); beep(3) }
+      finally { setLoading(false) }
+    }, 100)
   }
 
   const handleConfirm = async (payload: { sku: string; qtyRetur: number; kondisi: KondisiType; note: string }) => {
@@ -222,10 +398,19 @@ function TabRetur({ allProducts }: { allProducts: any[] }) {
 
   return (
     <div className="space-y-4 max-w-lg">
+      {/* Camera scanner fullscreen */}
+      {showCamera && (
+        <CameraReturScanner
+          onResult={handleCameraResult}
+          onClose={() => { setShowCamera(false); setTimeout(() => inputRef.current?.focus(), 100) }}
+        />
+      )}
+
       {order && !confirming && (
         <ReturModal order={order} allProducts={allProducts} onConfirm={handleConfirm}
           onClose={() => { setOrder(null); setAirwaybill(''); inputRef.current?.focus() }} />
       )}
+
       <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-5">
         <p className="text-sm font-medium text-zinc-400 mb-3">📦 Scan Retur — Input No. Resi</p>
         <form onSubmit={handleScan} className="flex gap-2">
@@ -235,13 +420,22 @@ function TabRetur({ allProducts }: { allProducts: any[] }) {
               placeholder="Scan / ketik no. resi..."
               className={`w-full bg-zinc-800 border rounded-lg pl-8 pr-3 py-2.5 text-sm text-zinc-200 placeholder-zinc-600 focus:outline-none focus:ring-2 transition-colors ${error ? 'border-red-700 focus:ring-red-500/50' : 'border-zinc-700 focus:ring-emerald-500/50'}`} />
           </div>
+          {/* Tombol kamera */}
+          <button type="button" onClick={() => setShowCamera(true)}
+            title="Scan pakai kamera"
+            className="bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-zinc-300 hover:text-emerald-400 rounded-lg px-3 py-2 transition-colors">
+            <Camera size={16} />
+          </button>
           <button type="submit" disabled={loading || !airwaybill.trim()}
             className="bg-emerald-700 hover:bg-emerald-600 disabled:opacity-40 text-white rounded-lg px-4 py-2 text-sm font-medium">
             {loading ? 'Cari...' : 'Cari'}
           </button>
         </form>
         {error && <p className="text-red-400 text-xs mt-2 bg-red-900/20 border border-red-900 rounded px-3 py-2 flex items-center gap-1.5"><AlertCircle size={12} />{error}</p>}
-        <p className="text-xs text-zinc-600 mt-3">Scan resi pesanan yang diretur. Bisa scan order TERKIRIM maupun DICAIRKAN.</p>
+        <p className="text-xs text-zinc-600 mt-3">
+          Ketik / scan resi atau tekan <Camera size={10} className="inline" /> untuk pakai kamera HP.
+          Bisa scan order TERKIRIM maupun DICAIRKAN.
+        </p>
       </div>
     </div>
   )
