@@ -43,7 +43,8 @@ export async function GET(request: NextRequest) {
 
   const [todayOrders, prevOrders, stokKritis, aging, topPlatform] = await Promise.all([
 
-    // Order hari target
+    // Order hari target — gunakan COALESCE(trx_date, created_at) agar order
+    // yang trx_date-nya NULL (belum di-backfill dari payout) tetap muncul
     prisma.$queryRaw<{
       group_key: string; cnt: bigint; total_omzet: bigint; total_hpp: bigint
     }[]>`
@@ -57,7 +58,8 @@ export async function GET(request: NextRequest) {
         COALESCE(SUM(real_omzet), 0) AS total_omzet,
         COALESCE(SUM(hpp * qty), 0) AS total_hpp
       FROM orders
-      WHERE trx_date >= ${gte} AND trx_date <= ${lte}
+      WHERE COALESCE(trx_date, created_at) >= ${gte}
+        AND COALESCE(trx_date, created_at) <= ${lte}
       GROUP BY group_key
     `,
 
@@ -65,7 +67,8 @@ export async function GET(request: NextRequest) {
     prisma.$queryRaw<{ cnt: bigint; total_omzet: bigint }[]>`
       SELECT COUNT(*) AS cnt, COALESCE(SUM(real_omzet), 0) AS total_omzet
       FROM orders
-      WHERE trx_date >= ${prevGte} AND trx_date <= ${prevLte}
+      WHERE COALESCE(trx_date, created_at) >= ${prevGte}
+        AND COALESCE(trx_date, created_at) <= ${prevLte}
         AND status NOT ILIKE '%batal%'
         AND status NOT ILIKE '%cancel%'
         AND status NOT ILIKE '%dibatalkan%'
@@ -87,13 +90,13 @@ export async function GET(request: NextRequest) {
       ) x WHERE soh <= rop
     `,
 
-    // Aging backlog
+    // Aging backlog — order pending yang belum terkirim/batal
     prisma.$queryRaw<{ bucket: string; cnt: bigint }[]>`
       SELECT
         CASE
-          WHEN EXTRACT(EPOCH FROM (NOW() - created_at))/3600 <= 12 THEN '0-12 Jam'
-          WHEN EXTRACT(EPOCH FROM (NOW() - created_at))/3600 <= 24 THEN '12-24 Jam'
-          WHEN EXTRACT(EPOCH FROM (NOW() - created_at))/3600 <= 48 THEN '24-48 Jam'
+          WHEN EXTRACT(EPOCH FROM (NOW() - COALESCE(trx_date, created_at)))/3600 <= 12 THEN '0-12 Jam'
+          WHEN EXTRACT(EPOCH FROM (NOW() - COALESCE(trx_date, created_at)))/3600 <= 24 THEN '12-24 Jam'
+          WHEN EXTRACT(EPOCH FROM (NOW() - COALESCE(trx_date, created_at)))/3600 <= 48 THEN '24-48 Jam'
           ELSE '>48 Jam'
         END AS bucket,
         COUNT(*) AS cnt
@@ -113,7 +116,8 @@ export async function GET(request: NextRequest) {
         COALESCE(SUM(real_omzet), 0) AS total_omzet,
         COALESCE(SUM(hpp * qty), 0) AS total_hpp
       FROM orders
-      WHERE trx_date >= ${gte} AND trx_date <= ${lte}
+      WHERE COALESCE(trx_date, created_at) >= ${gte}
+        AND COALESCE(trx_date, created_at) <= ${lte}
         AND status NOT ILIKE '%batal%'
         AND status NOT ILIKE '%cancel%'
         AND status NOT ILIKE '%dibatalkan%'
