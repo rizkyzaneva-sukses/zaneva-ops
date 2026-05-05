@@ -179,6 +179,12 @@ export async function GET(request: NextRequest) {
 
   return apiSuccess({
     date: targetStr,
+    _debug: {
+      gteStr,
+      lteStr,
+      todayOrdersRaw: (todayOrders as any[]).length,
+      platformsRaw: (topPlatform as any[]).length,
+    },
     summary: {
       omzet,
       hpp,
