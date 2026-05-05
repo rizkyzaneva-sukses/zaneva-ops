@@ -41,12 +41,13 @@ export async function GET(request: NextRequest) {
     targetStr = wibParts
   }
 
-  // Date boundaries dalam WIB (UTC+7)
-  const gte = new Date(targetStr + 'T00:00:00+07:00')
-  const lte = new Date(targetStr + 'T23:59:59.999+07:00')
+  // Date boundaries — gunakan string ISO untuk di-cast di SQL
+  // Ini menghindari masalah serialisasi Date object di Prisma $queryRaw
+  const gteStr = targetStr + 'T00:00:00+07:00'
+  const lteStr = targetStr + 'T23:59:59.999+07:00'
 
   // Hari sebelumnya untuk perbandingan
-  const prevDate = new Date(gte)
+  const prevDate = new Date(gteStr)
   prevDate.setDate(prevDate.getDate() - 1)
   const prevStr = new Intl.DateTimeFormat('en-CA', {
     timeZone: 'Asia/Jakarta',
@@ -54,13 +55,13 @@ export async function GET(request: NextRequest) {
     month: '2-digit',
     day: '2-digit',
   }).format(prevDate)
-  const prevGte = new Date(prevStr + 'T00:00:00+07:00')
-  const prevLte = new Date(prevStr + 'T23:59:59.999+07:00')
+  const prevGteStr = prevStr + 'T00:00:00+07:00'
+  const prevLteStr = prevStr + 'T23:59:59.999+07:00'
 
   const [todayOrders, prevOrders, stokKritis, aging, topPlatform] = await Promise.all([
 
     // Order hari target — gunakan trx_date langsung (sama seperti dashboard)
-    // Order tanpa trx_date (NULL) tidak masuk hitungan (belum di-backfill)
+    // Cast string ke timestamptz di SQL untuk menghindari masalah Prisma Date serialization
     prisma.$queryRaw<{
       group_key: string; cnt: bigint; total_omzet: bigint; total_hpp: bigint
     }[]>`
@@ -74,8 +75,8 @@ export async function GET(request: NextRequest) {
         COALESCE(SUM(real_omzet), 0) AS total_omzet,
         COALESCE(SUM(hpp * qty), 0) AS total_hpp
       FROM orders
-      WHERE trx_date >= ${gte}
-        AND trx_date <= ${lte}
+      WHERE trx_date >= ${gteStr}::timestamptz
+        AND trx_date <= ${lteStr}::timestamptz
       GROUP BY group_key
     `,
 
@@ -83,8 +84,8 @@ export async function GET(request: NextRequest) {
     prisma.$queryRaw<{ cnt: bigint; total_omzet: bigint }[]>`
       SELECT COUNT(*) AS cnt, COALESCE(SUM(real_omzet), 0) AS total_omzet
       FROM orders
-      WHERE trx_date >= ${prevGte}
-        AND trx_date <= ${prevLte}
+      WHERE trx_date >= ${prevGteStr}::timestamptz
+        AND trx_date <= ${prevLteStr}::timestamptz
         AND status NOT ILIKE '%batal%'
         AND status NOT ILIKE '%cancel%'
         AND status NOT ILIKE '%dibatalkan%'
@@ -132,8 +133,8 @@ export async function GET(request: NextRequest) {
         COALESCE(SUM(real_omzet), 0) AS total_omzet,
         COALESCE(SUM(hpp * qty), 0) AS total_hpp
       FROM orders
-      WHERE trx_date >= ${gte}
-        AND trx_date <= ${lte}
+      WHERE trx_date >= ${gteStr}::timestamptz
+        AND trx_date <= ${lteStr}::timestamptz
         AND status NOT ILIKE '%batal%'
         AND status NOT ILIKE '%cancel%'
         AND status NOT ILIKE '%dibatalkan%'
