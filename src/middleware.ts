@@ -11,6 +11,7 @@ const PUBLIC_ROUTES = [
   '/api/auth/logout',
   '/api/auth/me',
   '/api/public',
+  '/api/report/daily',
 ]
 
 // Routes only for OWNER

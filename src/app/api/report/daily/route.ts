@@ -1,6 +1,5 @@
-import { NextRequest } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { apiSuccess, apiError } from '@/lib/utils'
 
 /**
  * GET /api/report/daily?date=YYYY-MM-DD
@@ -8,7 +7,9 @@ import { apiSuccess, apiError } from '@/lib/utils'
  * Dilindungi API key di header: Authorization: Bearer <REPORT_API_KEY>
  * Default: hari ini WIB (laporan jam 17:30 untuk data hari berjalan)
  *
- * FIX: Menggunakan EXACT same query pattern seperti /api/dashboard/stats
+ * PENTING: Menggunakan pattern EXACT sama dengan /api/dashboard/stats
+ * - trx_date (bukan COALESCE) untuk filter
+ * - Date objects langsung (sama persis)
  */
 export async function GET(request: NextRequest) {
   // ── Auth via API Key (tidak pakai session, untuk n8n) ──
@@ -16,52 +17,44 @@ export async function GET(request: NextRequest) {
   const authHeader = request.headers.get('authorization')
   const token = authHeader?.replace('Bearer ', '').trim()
   if (!apiKey || token !== apiKey) {
-    return apiError('Unauthorized', 401)
+    return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 })
   }
 
   // ── Tanggal target ──
   const { searchParams } = request.nextUrl
   const dateParam = searchParams.get('date') // YYYY-MM-DD
 
-  // Hitung tanggal WIB
+  // Determine dateFrom (target date string YYYY-MM-DD)
   let dateFrom: string
-  let dateTo: string
   if (dateParam) {
     dateFrom = dateParam
-    dateTo = dateParam
   } else {
-    // Hari ini WIB — sama persis dengan cara dashboard menghitung
-    const now = new Date()
-    const wibDate = new Intl.DateTimeFormat('en-CA', {
-      timeZone: 'Asia/Jakarta',
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-    }).format(now) // format: YYYY-MM-DD
-    dateFrom = wibDate
-    dateTo = wibDate
+    // Default: hari ini WIB
+    const nowWIB = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Jakarta' }))
+    const y = nowWIB.getFullYear()
+    const m = String(nowWIB.getMonth() + 1).padStart(2, '0')
+    const d = String(nowWIB.getDate()).padStart(2, '0')
+    dateFrom = `${y}-${m}-${d}`
   }
 
-  // EXACT same date construction as /api/dashboard/stats
+  // EXACT same date construction as dashboard/stats
   const gteDate = new Date(dateFrom + 'T00:00:00+07:00')
-  const lteDate = new Date(dateTo + 'T23:59:59+07:00')
+  const lteDate = new Date(dateFrom + 'T23:59:59+07:00')
 
   // Hari sebelumnya untuk perbandingan
   const prevDay = new Date(gteDate)
   prevDay.setDate(prevDay.getDate() - 1)
-  const prevFrom = new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Asia/Jakarta',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).format(prevDay)
-  const prevGteDate = new Date(prevFrom + 'T00:00:00+07:00')
-  const prevLteDate = new Date(prevFrom + 'T23:59:59+07:00')
+  const prevY = prevDay.getFullYear()
+  const prevM = String(prevDay.getMonth() + 1).padStart(2, '0')
+  const prevD = String(prevDay.getDate()).padStart(2, '0')
+  const prevFrom = `${prevY}-${prevM}-${prevD}`
+  const prevGte = new Date(prevFrom + 'T00:00:00+07:00')
+  const prevLte = new Date(prevFrom + 'T23:59:59+07:00')
 
   try {
     const [todayOrders, prevOrders, stokKritis, aging, topPlatform] = await Promise.all([
 
-      // EXACT same query as dashboard/stats orderStats
+      // Order hari target — EXACT same pattern as dashboard: trx_date (not COALESCE)
       prisma.$queryRaw<{
         group_key: string; cnt: bigint; total_omzet: bigint; total_hpp: bigint
       }[]>`
@@ -79,17 +72,17 @@ export async function GET(request: NextRequest) {
         GROUP BY group_key
       `,
 
-      // Order hari sebelumnya (untuk perbandingan)
+      // Order hari sebelumnya (untuk perbandingan) — same pattern
       prisma.$queryRaw<{ cnt: bigint; total_omzet: bigint }[]>`
         SELECT COUNT(*) AS cnt, COALESCE(SUM(real_omzet), 0) AS total_omzet
         FROM orders
-        WHERE trx_date >= ${prevGteDate} AND trx_date <= ${prevLteDate}
+        WHERE trx_date >= ${prevGte} AND trx_date <= ${prevLte}
           AND status NOT ILIKE '%batal%'
           AND status NOT ILIKE '%cancel%'
           AND status NOT ILIKE '%dibatalkan%'
       `,
 
-      // Stok kritis (all-time)
+      // Stok kritis (all-time) — same as dashboard
       prisma.$queryRaw<{ cnt: bigint }[]>`
         SELECT COUNT(*) AS cnt
         FROM (
@@ -105,13 +98,13 @@ export async function GET(request: NextRequest) {
         ) x WHERE soh <= rop
       `,
 
-      // Aging backlog — order pending yang belum terkirim/batal
+      // Aging backlog — same as dashboard (uses created_at, no date filter)
       prisma.$queryRaw<{ bucket: string; cnt: bigint }[]>`
         SELECT
           CASE
-            WHEN EXTRACT(EPOCH FROM (NOW() - COALESCE(trx_date, created_at)))/3600 <= 12 THEN '0-12 Jam'
-            WHEN EXTRACT(EPOCH FROM (NOW() - COALESCE(trx_date, created_at)))/3600 <= 24 THEN '12-24 Jam'
-            WHEN EXTRACT(EPOCH FROM (NOW() - COALESCE(trx_date, created_at)))/3600 <= 48 THEN '24-48 Jam'
+            WHEN EXTRACT(EPOCH FROM (NOW() - created_at))/3600 <= 12 THEN '0-12 Jam'
+            WHEN EXTRACT(EPOCH FROM (NOW() - created_at))/3600 <= 24 THEN '12-24 Jam'
+            WHEN EXTRACT(EPOCH FROM (NOW() - created_at))/3600 <= 48 THEN '24-48 Jam'
             ELSE '>48 Jam'
           END AS bucket,
           COUNT(*) AS cnt
@@ -123,7 +116,7 @@ export async function GET(request: NextRequest) {
         GROUP BY bucket
       `,
 
-      // EXACT same query as dashboard/stats omzetByPlatform
+      // Per platform hari ini — EXACT same as dashboard omzetByPlatform
       prisma.$queryRaw<{ platform: string; cnt: bigint; total_omzet: bigint; total_hpp: bigint }[]>`
         SELECT
           COALESCE(platform, 'Unknown') AS platform,
@@ -148,25 +141,24 @@ export async function GET(request: NextRequest) {
       ])
     )
 
-    const omzet  = (statsMap['terkirim']?.omzet ?? 0) + (statsMap['perlu_dikirim']?.omzet ?? 0)
-    const hpp    = (statsMap['terkirim']?.hpp ?? 0) + (statsMap['perlu_dikirim']?.hpp ?? 0)
-    const gp     = omzet - hpp
+    const omzet = (statsMap['terkirim']?.omzet ?? 0) + (statsMap['perlu_dikirim']?.omzet ?? 0)
+    const hpp = (statsMap['terkirim']?.hpp ?? 0) + (statsMap['perlu_dikirim']?.hpp ?? 0)
+    const gp = omzet - hpp
     const margin = omzet > 0 ? ((gp / omzet) * 100).toFixed(1) : '0'
 
-    const terkirim    = statsMap['terkirim']?.count ?? 0
-    const perluKirim  = statsMap['perlu_dikirim']?.count ?? 0
-    const batal       = statsMap['batal']?.count ?? 0
-    const totalOrder  = terkirim + perluKirim + batal
+    const terkirim = statsMap['terkirim']?.count ?? 0
+    const perluKirim = statsMap['perlu_dikirim']?.count ?? 0
+    const batal = statsMap['batal']?.count ?? 0
+    const totalOrder = terkirim + perluKirim + batal
 
-    const prevOmzet  = Number((prevOrders as any[])[0]?.total_omzet ?? 0)
-    const prevCount  = Number((prevOrders as any[])[0]?.cnt ?? 0)
-    const omzetDiff  = omzet - prevOmzet
-    const countDiff  = (terkirim + perluKirim) - prevCount
+    const prevOmzet = Number((prevOrders as any[])[0]?.total_omzet ?? 0)
+    const prevCount = Number((prevOrders as any[])[0]?.cnt ?? 0)
+    const omzetDiff = omzet - prevOmzet
+    const countDiff = totalOrder - prevCount
 
     const agingMap = Object.fromEntries((aging as any[]).map((r: any) => [r.bucket, Number(r.cnt)]))
-    const agingOver48 = agingMap['>48 Jam'] ?? 0
 
-    const platforms = (topPlatform as any[]).map((p: any) => ({
+    const platforms = (topPlatform as any[]).map(p => ({
       platform: p.platform,
       count: Number(p.cnt),
       omzet: Number(p.total_omzet),
@@ -174,52 +166,54 @@ export async function GET(request: NextRequest) {
       gp: Number(p.total_omzet) - Number(p.total_hpp),
     }))
 
-    return apiSuccess({
-      date: dateFrom,
+    return NextResponse.json({
+      success: true,
+      data: {
+        date: dateFrom,
+        summary: {
+          omzet,
+          hpp,
+          grossProfit: gp,
+          grossMargin: margin,
+          totalOrder,
+          terkirim,
+          perluKirim,
+          batal,
+        },
+        comparison: {
+          prevOmzet,
+          prevOrderCount: prevCount,
+          omzetDiff,
+          omzetDiffPct: prevOmzet > 0 ? ((omzetDiff / prevOmzet) * 100).toFixed(1) : null,
+          orderCountDiff: countDiff,
+        },
+        platforms,
+        stokKritis: Number((stokKritis as any[])[0]?.cnt ?? 0),
+        aging: {
+          total: (Object.values(agingMap) as number[]).reduce((s, v) => s + v, 0),
+          detail: agingMap,
+        },
+      },
       _debug: {
         dateFrom,
-        dateTo,
         gteDate: gteDate.toISOString(),
         lteDate: lteDate.toISOString(),
-        todayOrdersRows: (todayOrders as any[]).length,
+        todayOrderRows: (todayOrders as any[]).length,
+        prevOrderRows: (prevOrders as any[]).length,
         platformRows: (topPlatform as any[]).length,
-        statsMap,
-      },
-      summary: {
-        omzet,
-        hpp,
-        grossProfit: gp,
-        grossMargin: margin,
-        totalOrder,
-        terkirim,
-        perluKirim,
-        batal,
-      },
-      comparison: {
-        prevOmzet,
-        prevOrderCount: prevCount,
-        omzetDiff,
-        omzetDiffPct: prevOmzet > 0 ? ((omzetDiff / prevOmzet) * 100).toFixed(1) : null,
-        orderCountDiff: countDiff,
-      },
-      platforms,
-      stokKritis: Number((stokKritis as any[])[0]?.cnt ?? 0),
-      aging: {
-        total: (Object.values(agingMap) as number[]).reduce((s, v) => s + v, 0),
-        over48: agingOver48,
-        detail: agingMap,
+        agingRows: (aging as any[]).length,
       },
     })
-  } catch (error: any) {
-    // Return error details for debugging
-    return apiSuccess({
-      date: dateFrom,
-      _error: error.message || String(error),
-      summary: { omzet: 0, hpp: 0, grossProfit: 0, grossMargin: '0', totalOrder: 0, terkirim: 0, perluKirim: 0, batal: 0 },
-      comparison: { prevOmzet: 0, prevOrderCount: 0, omzetDiff: 0, omzetDiffPct: null, orderCountDiff: 0 },
-      platforms: [],
-      stokKritis: 0,
-      aging: { total: 0, over48: 0, detail: {} },
-    })
+  } catch (err: any) {
+    return NextResponse.json({
+      success: false,
+      error: err.message || 'Unknown error',
+      stack: err.stack?.split('\n').slice(0, 5),
+      _debug: {
+        dateFrom,
+        gteDate: gteDate.toISOString(),
+        lteDate: lteDate.toISOString(),
+      },
+    }, { status: 500 })
   }
 }
