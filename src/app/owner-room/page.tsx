@@ -57,13 +57,13 @@ function UserModal({ user, onClose }: { user?: any; onClose: () => void }) {
             <div>
               <label className="block text-xs text-zinc-500 mb-1">Username *</label>
               <input value={form.username} onChange={e => set('username', e.target.value)} required
-                className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-200 focus:outline-none"/>
+                className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-200 focus:outline-none" />
             </div>
           )}
           <div>
             <label className="block text-xs text-zinc-500 mb-1">Nama Lengkap</label>
             <input value={form.fullName} onChange={e => set('fullName', e.target.value)}
-              className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-200 focus:outline-none"/>
+              className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-200 focus:outline-none" />
           </div>
           <div>
             <label className="block text-xs text-zinc-500 mb-1">Role *</label>
@@ -75,11 +75,11 @@ function UserModal({ user, onClose }: { user?: any; onClose: () => void }) {
           <div>
             <label className="block text-xs text-zinc-500 mb-1">{isEdit ? 'Password Baru (kosongkan jika tidak diubah)' : 'Password *'}</label>
             <input type="password" value={form.password} onChange={e => set('password', e.target.value)} required={!isEdit}
-              className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-200 focus:outline-none"/>
+              className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-200 focus:outline-none" />
           </div>
           {isEdit && (
             <div className="flex items-center gap-2">
-              <input type="checkbox" id="ua" checked={form.isActive} onChange={e => set('isActive', e.target.checked)} className="rounded"/>
+              <input type="checkbox" id="ua" checked={form.isActive} onChange={e => set('isActive', e.target.checked)} className="rounded" />
               <label htmlFor="ua" className="text-xs text-zinc-400">Aktif</label>
             </div>
           )}
@@ -109,7 +109,7 @@ function UsersTab() {
       )}
       <div className="flex justify-end mb-4">
         <button onClick={() => setModal(true)} className="flex items-center gap-2 bg-emerald-700 hover:bg-emerald-600 text-white rounded-lg px-3 py-2 text-sm font-medium transition-colors">
-          <Plus size={14}/> Tambah User
+          <Plus size={14} /> Tambah User
         </button>
       </div>
       <div className="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden">
@@ -118,8 +118,8 @@ function UsersTab() {
             <tr><th>Username</th><th>Nama</th><th className="w-24">Role</th><th className="w-20">Status</th><th className="w-28">Dibuat</th><th className="w-12"></th></tr>
           </thead>
           <tbody>
-            {isLoading ? Array.from({length:3}).map((_,i)=>(
-              <tr key={i}>{Array.from({length:6}).map((_,j)=><td key={j}><div className="h-4 bg-zinc-800 rounded animate-pulse"/></td>)}</tr>
+            {isLoading ? Array.from({ length: 3 }).map((_, i) => (
+              <tr key={i}>{Array.from({ length: 6 }).map((_, j) => <td key={j}><div className="h-4 bg-zinc-800 rounded animate-pulse" /></td>)}</tr>
             )) : (users ?? []).map((u: any) => (
               <tr key={u.id}>
                 <td><span className="font-mono text-sm text-zinc-200">{u.username}</span></td>
@@ -129,7 +129,7 @@ function UsersTab() {
                 <td className="text-xs text-zinc-500">{formatDate(u.createdAt)}</td>
                 <td>
                   <button onClick={() => setModal(u)} className="p-1.5 rounded hover:bg-zinc-800 text-zinc-600 hover:text-zinc-300">
-                    <Edit2 size={12}/>
+                    <Edit2 size={12} />
                   </button>
                 </td>
               </tr>
@@ -160,7 +160,7 @@ function AuditTab() {
         <select value={entityType} onChange={e => setEntityType(e.target.value)}
           className="bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-2 text-sm text-zinc-400 focus:outline-none">
           <option value="">Semua Entity</option>
-          {['Order','InventoryScanBatch','StockOpnameBatch','PurchaseOrder','GoodsReceipt'].map(e => (
+          {['Order', 'InventoryScanBatch', 'StockOpnameBatch', 'PurchaseOrder', 'GoodsReceipt'].map(e => (
             <option key={e} value={e}>{e}</option>
           ))}
         </select>
@@ -172,8 +172,8 @@ function AuditTab() {
             <tr><th className="w-32">Waktu</th><th className="w-32">Entity</th><th className="w-20">Aksi</th><th>Detail</th><th className="w-24">Oleh</th></tr>
           </thead>
           <tbody>
-            {isLoading ? Array.from({length:5}).map((_,i)=>(
-              <tr key={i}>{Array.from({length:5}).map((_,j)=><td key={j}><div className="h-4 bg-zinc-800 rounded animate-pulse"/></td>)}</tr>
+            {isLoading ? Array.from({ length: 5 }).map((_, i) => (
+              <tr key={i}>{Array.from({ length: 5 }).map((_, j) => <td key={j}><div className="h-4 bg-zinc-800 rounded animate-pulse" /></td>)}</tr>
             )) : logs.length === 0 ? (
               <tr><td colSpan={5} className="text-center py-8 text-zinc-600">Belum ada audit log</td></tr>
             ) : logs.map((l: any) => (
@@ -306,7 +306,7 @@ function BackupEntityRow({ entityKey, label, desc, canImport }: {
       {/* Header */}
       <div className="flex items-start justify-between gap-2">
         <div className="flex items-center gap-2">
-          <FileJson size={15} className="text-emerald-400 shrink-0 mt-0.5"/>
+          <FileJson size={15} className="text-emerald-400 shrink-0 mt-0.5" />
           <div>
             <p className="text-sm font-medium text-zinc-200">{label}</p>
             <p className="text-xs text-zinc-500">{desc}</p>
@@ -317,7 +317,7 @@ function BackupEntityRow({ entityKey, label, desc, canImport }: {
           disabled={exportLoading}
           className="flex items-center gap-1.5 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-zinc-300 rounded-lg px-3 py-1.5 text-xs transition-colors shrink-0 disabled:opacity-50"
         >
-          {exportLoading ? <Loader2 size={11} className="animate-spin"/> : <Download size={11}/>}
+          {exportLoading ? <Loader2 size={11} className="animate-spin" /> : <Download size={11} />}
           Export
         </button>
       </div>
@@ -328,7 +328,7 @@ function BackupEntityRow({ entityKey, label, desc, canImport }: {
           {!pendingData && !importResult && (
             <label className="flex items-center gap-2 cursor-pointer group">
               <div className="flex items-center gap-2 bg-zinc-800 hover:bg-emerald-900/40 border border-zinc-700 hover:border-emerald-700 rounded-lg px-3 py-1.5 text-xs text-zinc-400 group-hover:text-emerald-300 transition-all">
-                <Upload size={11}/>
+                <Upload size={11} />
                 <span>Import JSON</span>
               </div>
               <input
@@ -343,7 +343,7 @@ function BackupEntityRow({ entityKey, label, desc, canImport }: {
           {pendingData && (
             <div className="flex items-center gap-2 flex-wrap">
               <div className="flex items-center gap-1.5 bg-amber-900/20 border border-amber-700/40 rounded-lg px-3 py-1.5 text-xs text-amber-300">
-                <AlertCircle size={11}/>
+                <AlertCircle size={11} />
                 {entityKey === 'all'
                   ? `${previewCount?.toLocaleString('id-ID')} total records (5 entity) siap diimport`
                   : `${previewCount?.toLocaleString('id-ID')} baris siap diimport`
@@ -354,7 +354,7 @@ function BackupEntityRow({ entityKey, label, desc, canImport }: {
                 disabled={importLoading}
                 className="flex items-center gap-1.5 bg-emerald-700 hover:bg-emerald-600 disabled:opacity-50 text-white rounded-lg px-3 py-1.5 text-xs font-medium transition-colors"
               >
-                {importLoading ? <Loader2 size={11} className="animate-spin"/> : <Upload size={11}/>}
+                {importLoading ? <Loader2 size={11} className="animate-spin" /> : <Upload size={11} />}
                 {importLoading ? 'Mengimport...' : 'Konfirmasi Import'}
               </button>
               <button
@@ -370,7 +370,7 @@ function BackupEntityRow({ entityKey, label, desc, canImport }: {
             <div className="flex flex-col gap-2">
               <div className="flex items-center gap-2 flex-wrap">
                 <div className="flex items-center gap-1.5 bg-emerald-900/20 border border-emerald-700/40 rounded-lg px-3 py-1.5 text-xs text-emerald-300">
-                  <CheckCircle2 size={11}/>
+                  <CheckCircle2 size={11} />
                   +{importResult.inserted} baru · ~{importResult.updated} update · {importResult.skipped} skip
                 </div>
                 <button onClick={handleCancelImport} className="text-xs text-zinc-500 hover:text-zinc-300 transition-colors px-2 py-1.5">Reset</button>
@@ -408,7 +408,7 @@ function BackupTab() {
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-2 bg-blue-900/20 border border-blue-700/40 rounded-lg px-4 py-3">
-        <AlertCircle size={14} className="text-blue-400 shrink-0"/>
+        <AlertCircle size={14} className="text-blue-400 shrink-0" />
         <p className="text-xs text-blue-300">
           <strong>Import Semua Data</strong> — upload file hasil Export Semua Data untuk restore semua entity sekaligus.
           Bisa juga import per-entity satu per satu di bawah.
@@ -477,7 +477,7 @@ function KategoriModal({ cat, onClose }: { cat?: any; onClose: () => void }) {
       <div className="bg-zinc-900 border border-zinc-800 rounded-2xl w-full max-w-sm p-6 shadow-2xl">
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-sm font-semibold text-white">{isEdit ? 'Edit Kategori' : 'Tambah Kategori'}</h2>
-          <button onClick={onClose} className="text-zinc-500 hover:text-zinc-300"><X size={16}/></button>
+          <button onClick={onClose} className="text-zinc-500 hover:text-zinc-300"><X size={16} /></button>
         </div>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
@@ -485,7 +485,7 @@ function KategoriModal({ cat, onClose }: { cat?: any; onClose: () => void }) {
             <input value={form.name} onChange={e => set('name', e.target.value)} required
               disabled={isEdit && cat?.isSystem}
               placeholder="cth: Beban Sewa Gudang"
-              className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-200 focus:outline-none disabled:opacity-50"/>
+              className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-200 focus:outline-none disabled:opacity-50" />
           </div>
           <div>
             <label className="block text-xs text-zinc-500 mb-1">Group</label>
@@ -497,7 +497,7 @@ function KategoriModal({ cat, onClose }: { cat?: any; onClose: () => void }) {
             {useCustomGroup && (
               <input value={form.customGroup} onChange={e => set('customGroup', e.target.value)} required
                 placeholder="Nama group baru" autoFocus
-                className="w-full mt-2 bg-zinc-800 border border-emerald-600 rounded-lg px-3 py-2 text-sm text-zinc-200 focus:outline-none"/>
+                className="w-full mt-2 bg-zinc-800 border border-emerald-600 rounded-lg px-3 py-2 text-sm text-zinc-200 focus:outline-none" />
             )}
           </div>
           <div>
@@ -585,7 +585,7 @@ function KategoriTab() {
         </div>
         <button onClick={() => setModal(true)}
           className="flex items-center gap-2 bg-emerald-700 hover:bg-emerald-600 text-white rounded-lg px-3 py-2 text-sm font-medium transition-colors">
-          <Plus size={14}/> Tambah Kategori
+          <Plus size={14} /> Tambah Kategori
         </button>
       </div>
 
@@ -609,8 +609,8 @@ function KategoriTab() {
             </tr>
           </thead>
           <tbody>
-            {isLoading ? Array.from({length:5}).map((_,i) => (
-              <tr key={i}>{Array.from({length:6}).map((_,j) => <td key={j}><div className="h-4 bg-zinc-800 rounded animate-pulse"/></td>)}</tr>
+            {isLoading ? Array.from({ length: 5 }).map((_, i) => (
+              <tr key={i}>{Array.from({ length: 6 }).map((_, j) => <td key={j}><div className="h-4 bg-zinc-800 rounded animate-pulse" /></td>)}</tr>
             )) : filtered.length === 0 ? (
               <tr><td colSpan={6} className="text-center py-8 text-zinc-600">Tidak ada kategori</td></tr>
             ) : filtered.map((c: any) => (
@@ -637,14 +637,13 @@ function KategoriTab() {
                     {!c.isSystem && (
                       <button onClick={() => setModal(c)}
                         className="p-1.5 rounded hover:bg-zinc-800 text-zinc-600 hover:text-zinc-300" title="Edit">
-                        <Pencil size={11}/>
+                        <Pencil size={11} />
                       </button>
                     )}
                     <button onClick={() => toggleActive(c)}
-                      className={`p-1.5 rounded text-xs transition-colors ${
-                        c.isActive ? 'hover:bg-red-900/30 text-zinc-600 hover:text-red-400' : 'hover:bg-emerald-900/30 text-zinc-600 hover:text-emerald-400'
-                      }`} title={c.isActive ? 'Nonaktifkan' : 'Aktifkan'}>
-                      {c.isActive ? <ToggleRight size={14}/> : <ToggleLeft size={14}/>}
+                      className={`p-1.5 rounded text-xs transition-colors ${c.isActive ? 'hover:bg-red-900/30 text-zinc-600 hover:text-red-400' : 'hover:bg-emerald-900/30 text-zinc-600 hover:text-emerald-400'
+                        }`} title={c.isActive ? 'Nonaktifkan' : 'Aktifkan'}>
+                      {c.isActive ? <ToggleRight size={14} /> : <ToggleLeft size={14} />}
                     </button>
                   </div>
                 </td>
@@ -668,6 +667,9 @@ function TelegramSection() {
   const [saving, setSaving] = useState(false)
   const [testing, setTesting] = useState(false)
   const [sending, setSending] = useState(false)
+  const [autoEnabled, setAutoEnabled] = useState(true)
+  const [lastSent, setLastSent] = useState<string | null>(null)
+  const [togglingAuto, setTogglingAuto] = useState(false)
 
   useEffect(() => {
     fetch('/api/settings')
@@ -676,10 +678,30 @@ function TelegramSection() {
         if (d.success) {
           setBotToken(d.data?.telegram_bot_token ?? '')
           setChatId(d.data?.telegram_chat_id ?? '')
+          setAutoEnabled(d.data?.auto_report_enabled !== 'false')
+          setLastSent(d.data?.last_auto_report_sent ?? null)
         }
       })
       .finally(() => setFetching(false))
   }, [])
+
+  const handleToggleAuto = async () => {
+    setTogglingAuto(true)
+    const newValue = !autoEnabled
+    try {
+      const res = await fetch('/api/settings', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key: 'auto_report_enabled', value: String(newValue) }),
+      })
+      const json = await res.json()
+      if (!json.success) throw new Error(json.error)
+      setAutoEnabled(newValue)
+      toast({ title: newValue ? '⏰ Auto report 17:30 WIB diaktifkan!' : '⏸️ Auto report dinonaktifkan', type: 'success' })
+    } catch (err: any) {
+      toast({ title: err.message || 'Gagal mengubah setting', type: 'error' })
+    } finally { setTogglingAuto(false) }
+  }
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -744,14 +766,14 @@ function TelegramSection() {
 
   if (fetching) return (
     <div className="flex items-center gap-2 text-zinc-500 text-sm py-4">
-      <Loader2 size={14} className="animate-spin"/> Memuat konfigurasi...
+      <Loader2 size={14} className="animate-spin" /> Memuat konfigurasi...
     </div>
   )
 
   return (
     <div className="mt-8 pt-8 border-t border-zinc-800">
       <div className="flex items-center gap-2 mb-2">
-        <Bell size={16} className="text-sky-400"/>
+        <Bell size={16} className="text-sky-400" />
         <h2 className="text-sm font-semibold text-zinc-200">Notifikasi Telegram</h2>
         <span className="text-[10px] bg-sky-900/40 border border-sky-700/50 text-sky-300 rounded px-2 py-0.5">Tanpa n8n</span>
       </div>
@@ -784,7 +806,7 @@ function TelegramSection() {
               onClick={() => setShowToken(v => !v)}
               className="absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300"
             >
-              {showToken ? <EyeOff size={13}/> : <Eye size={13}/>}
+              {showToken ? <EyeOff size={13} /> : <Eye size={13} />}
             </button>
           </div>
         </div>
@@ -805,7 +827,7 @@ function TelegramSection() {
             disabled={saving}
             className="flex items-center gap-2 bg-sky-700 hover:bg-sky-600 disabled:opacity-50 text-white rounded-lg px-4 py-2 text-sm font-medium transition-colors"
           >
-            {saving ? <Loader2 size={14} className="animate-spin"/> : <Settings size={14}/>}
+            {saving ? <Loader2 size={14} className="animate-spin" /> : <Settings size={14} />}
             {saving ? 'Menyimpan...' : 'Simpan Konfigurasi'}
           </button>
 
@@ -815,7 +837,7 @@ function TelegramSection() {
             disabled={testing || !botToken || !chatId}
             className="flex items-center gap-2 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 disabled:opacity-40 text-zinc-200 rounded-lg px-4 py-2 text-sm font-medium transition-colors"
           >
-            {testing ? <Loader2 size={14} className="animate-spin"/> : <CheckCircle2 size={14} className="text-emerald-400"/>}
+            {testing ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle2 size={14} className="text-emerald-400" />}
             {testing ? 'Mengirim...' : 'Test Koneksi'}
           </button>
 
@@ -825,11 +847,41 @@ function TelegramSection() {
             disabled={sending || !botToken || !chatId}
             className="flex items-center gap-2 bg-emerald-700 hover:bg-emerald-600 disabled:opacity-40 text-white rounded-lg px-4 py-2 text-sm font-medium transition-colors"
           >
-            {sending ? <Loader2 size={14} className="animate-spin"/> : <Send size={14}/>}
+            {sending ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
             {sending ? 'Mengirim Laporan...' : 'Kirim Laporan Sekarang'}
           </button>
         </div>
       </form>
+
+      {/* Auto Report Toggle */}
+      <div className="mt-6 pt-6 border-t border-zinc-800">
+        <div className="flex items-center justify-between">
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-medium text-zinc-200">⏰ Auto Report Jam 17:30 WIB</span>
+              <span className={`text-[10px] rounded px-2 py-0.5 ${autoEnabled ? 'bg-emerald-900/40 border border-emerald-700/50 text-emerald-300' : 'bg-zinc-800 border border-zinc-700 text-zinc-500'}`}>
+                {autoEnabled ? 'AKTIF' : 'NONAKTIF'}
+              </span>
+            </div>
+            <p className="text-xs text-zinc-500 mt-1">
+              Laporan akan dikirim otomatis setiap hari jam 17:30 WIB tanpa perlu klik manual.
+            </p>
+            {lastSent && (
+              <p className="text-[10px] text-zinc-600 mt-1">
+                Terakhir dikirim: {new Date(lastSent).toLocaleString('id-ID', { timeZone: 'Asia/Jakarta', dateStyle: 'medium', timeStyle: 'short' })}
+              </p>
+            )}
+          </div>
+          <button
+            type="button"
+            onClick={handleToggleAuto}
+            disabled={togglingAuto || !botToken || !chatId}
+            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors disabled:opacity-40 ${autoEnabled ? 'bg-emerald-600' : 'bg-zinc-700'}`}
+          >
+            <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${autoEnabled ? 'translate-x-6' : 'translate-x-1'}`} />
+          </button>
+        </div>
+      </div>
     </div>
   )
 }
@@ -881,7 +933,7 @@ function PengaturanTab() {
   return (
     <div className="max-w-lg">
       <div className="flex items-center gap-2 mb-4">
-        <Settings size={16} className="text-emerald-400"/>
+        <Settings size={16} className="text-emerald-400" />
         <h2 className="text-sm font-semibold text-zinc-200">Biaya Admin Platform</h2>
       </div>
       <div className="bg-amber-900/20 border border-amber-700/40 rounded-lg px-4 py-3 mb-5">
@@ -892,7 +944,7 @@ function PengaturanTab() {
       </div>
       {fetching ? (
         <div className="flex items-center gap-2 text-zinc-500 text-sm">
-          <Loader2 size={14} className="animate-spin"/> Memuat pengaturan...
+          <Loader2 size={14} className="animate-spin" /> Memuat pengaturan...
         </div>
       ) : (
         <form onSubmit={handleSave} className="space-y-4">
@@ -927,7 +979,7 @@ function PengaturanTab() {
             disabled={loading}
             className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white rounded-lg px-4 py-2 text-sm font-medium transition-colors"
           >
-            {loading ? <Loader2 size={14} className="animate-spin"/> : null}
+            {loading ? <Loader2 size={14} className="animate-spin" /> : null}
             {loading ? 'Menyimpan...' : 'Simpan Pengaturan'}
           </button>
         </form>
@@ -953,7 +1005,7 @@ function OwnerRoomContent() {
   return (
     <AppLayout>
       <div className="page-header">
-        <h1 className="page-title flex items-center gap-2"><Shield size={22} className="text-emerald-400"/>Owner Room</h1>
+        <h1 className="page-title flex items-center gap-2"><Shield size={22} className="text-emerald-400" />Owner Room</h1>
       </div>
 
       <div className="flex gap-1 mb-6 bg-zinc-900 border border-zinc-800 rounded-xl p-1 w-fit">

@@ -12,6 +12,7 @@ const PUBLIC_ROUTES = [
   '/api/auth/me',
   '/api/public',
   '/api/report/daily',
+  '/api/report/cron-telegram',
 ]
 
 // Routes only for OWNER
