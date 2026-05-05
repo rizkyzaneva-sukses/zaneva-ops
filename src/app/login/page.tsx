@@ -46,8 +46,9 @@ function LoginPage() {
       await refetch()
       const from = searchParams.get('from')
       router.replace(from || data.data.redirectTo || '/dashboard')
-    } catch {
-      setError('Terjadi kesalahan. Coba lagi.')
+    } catch (err) {
+      console.error('Login fetch error:', err)
+      setError('Tidak dapat terhubung ke server. Periksa koneksi internet.')
     } finally {
       setLoading(false)
     }
