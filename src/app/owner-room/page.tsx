@@ -6,7 +6,7 @@ import { useState, useEffect, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { formatDate } from '@/lib/utils'
 import { useToast } from '@/components/ui/toaster'
-import { Shield, Download, Plus, Edit2, Loader2, Settings, Upload, CheckCircle2, AlertCircle, FileJson, Tag, X, ToggleLeft, ToggleRight, Pencil } from 'lucide-react'
+import { Shield, Download, Plus, Edit2, Loader2, Settings, Upload, CheckCircle2, AlertCircle, FileJson, Tag, X, ToggleLeft, ToggleRight, Pencil, Send, Bell, Eye, EyeOff } from 'lucide-react'
 
 const TABS = ['Users', 'Audit Log', 'Kategori', 'Backup Data', 'Pengaturan']
 const ROLES = ['OWNER', 'FINANCE', 'STAFF', 'EXTERNAL']
@@ -659,6 +659,181 @@ function KategoriTab() {
 }
 
 
+function TelegramSection() {
+  const { toast } = useToast()
+  const [botToken, setBotToken] = useState('')
+  const [chatId, setChatId] = useState('')
+  const [showToken, setShowToken] = useState(false)
+  const [fetching, setFetching] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [testing, setTesting] = useState(false)
+  const [sending, setSending] = useState(false)
+
+  useEffect(() => {
+    fetch('/api/settings')
+      .then(r => r.json())
+      .then(d => {
+        if (d.success) {
+          setBotToken(d.data?.telegram_bot_token ?? '')
+          setChatId(d.data?.telegram_chat_id ?? '')
+        }
+      })
+      .finally(() => setFetching(false))
+  }, [])
+
+  const handleSave = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setSaving(true)
+    try {
+      const results = await Promise.all([
+        fetch('/api/settings', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ key: 'telegram_bot_token', value: botToken.trim() }),
+        }),
+        fetch('/api/settings', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ key: 'telegram_chat_id', value: chatId.trim() }),
+        }),
+      ])
+      const jsons = await Promise.all(results.map(r => r.json()))
+      const failed = jsons.find(j => !j.success)
+      if (failed) throw new Error(failed.error)
+      toast({ title: '✅ Konfigurasi Telegram disimpan!', type: 'success' })
+    } catch (err: any) {
+      toast({ title: err.message || 'Gagal menyimpan', type: 'error' })
+    } finally { setSaving(false) }
+  }
+
+  const handleTest = async () => {
+    if (!botToken || !chatId) {
+      toast({ title: 'Simpan Bot Token dan Chat ID dulu!', type: 'error' })
+      return
+    }
+    setTesting(true)
+    try {
+      const res = await fetch('/api/report/test-telegram', { method: 'POST' })
+      const json = await res.json()
+      if (!json.success) throw new Error(json.error)
+      toast({ title: '✅ Pesan test berhasil dikirim ke Telegram!', type: 'success' })
+    } catch (err: any) {
+      toast({ title: `❌ ${err.message || 'Gagal kirim test'}`, type: 'error' })
+    } finally { setTesting(false) }
+  }
+
+  const handleSendNow = async () => {
+    if (!botToken || !chatId) {
+      toast({ title: 'Simpan konfigurasi Telegram dulu!', type: 'error' })
+      return
+    }
+    setSending(true)
+    try {
+      const res = await fetch('/api/report/send-telegram', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      })
+      const json = await res.json()
+      if (!json.success) throw new Error(json.error)
+      toast({ title: '📊 Laporan harian berhasil dikirim ke Telegram!', type: 'success' })
+    } catch (err: any) {
+      toast({ title: `❌ ${err.message || 'Gagal kirim laporan'}`, type: 'error' })
+    } finally { setSending(false) }
+  }
+
+  if (fetching) return (
+    <div className="flex items-center gap-2 text-zinc-500 text-sm py-4">
+      <Loader2 size={14} className="animate-spin"/> Memuat konfigurasi...
+    </div>
+  )
+
+  return (
+    <div className="mt-8 pt-8 border-t border-zinc-800">
+      <div className="flex items-center gap-2 mb-2">
+        <Bell size={16} className="text-sky-400"/>
+        <h2 className="text-sm font-semibold text-zinc-200">Notifikasi Telegram</h2>
+        <span className="text-[10px] bg-sky-900/40 border border-sky-700/50 text-sky-300 rounded px-2 py-0.5">Tanpa n8n</span>
+      </div>
+      <p className="text-xs text-zinc-500 mb-5">
+        Laporan harian otomatis langsung dari aplikasi ke Telegram kamu — tidak perlu n8n lagi.
+      </p>
+
+      {/* How to get Chat ID */}
+      <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-4 mb-5 text-xs text-zinc-400 space-y-1.5">
+        <p className="text-zinc-300 font-medium mb-2">📋 Cara dapat Chat ID &amp; Bot Token:</p>
+        <p>1. Buat bot baru: chat ke <span className="text-sky-400 font-mono">@BotFather</span> → /newbot → ikuti instruksi → copy <strong className="text-zinc-200">Bot Token</strong></p>
+        <p>2. Chat ke bot kamu, lalu buka: <span className="font-mono text-sky-400">https://api.telegram.org/bot[TOKEN]/getUpdates</span></p>
+        <p>3. Lihat <span className="font-mono text-zinc-300">"chat":{'{'}"id": 12345678{'}'}</span> → itu <strong className="text-zinc-200">Chat ID</strong> kamu</p>
+        <p className="text-zinc-500 italic">Atau bisa juga pakai <span className="text-sky-400">@userinfobot</span> — forward pesan ke sana untuk dapat Chat ID.</p>
+      </div>
+
+      <form onSubmit={handleSave} className="space-y-4">
+        <div>
+          <label className="block text-xs text-zinc-500 mb-1">Bot Token</label>
+          <div className="relative">
+            <input
+              type={showToken ? 'text' : 'password'}
+              value={botToken}
+              onChange={e => setBotToken(e.target.value)}
+              placeholder="1234567890:ABCdef..."
+              className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 pr-9 text-sm text-zinc-200 focus:outline-none focus:border-sky-600 font-mono"
+            />
+            <button
+              type="button"
+              onClick={() => setShowToken(v => !v)}
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300"
+            >
+              {showToken ? <EyeOff size={13}/> : <Eye size={13}/>}
+            </button>
+          </div>
+        </div>
+        <div>
+          <label className="block text-xs text-zinc-500 mb-1">Chat ID (nomor negatif untuk grup)</label>
+          <input
+            type="text"
+            value={chatId}
+            onChange={e => setChatId(e.target.value)}
+            placeholder="123456789 atau -100123456789"
+            className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-200 focus:outline-none focus:border-sky-600 font-mono"
+          />
+        </div>
+
+        <div className="flex flex-wrap gap-2 pt-1">
+          <button
+            type="submit"
+            disabled={saving}
+            className="flex items-center gap-2 bg-sky-700 hover:bg-sky-600 disabled:opacity-50 text-white rounded-lg px-4 py-2 text-sm font-medium transition-colors"
+          >
+            {saving ? <Loader2 size={14} className="animate-spin"/> : <Settings size={14}/>}
+            {saving ? 'Menyimpan...' : 'Simpan Konfigurasi'}
+          </button>
+
+          <button
+            type="button"
+            onClick={handleTest}
+            disabled={testing || !botToken || !chatId}
+            className="flex items-center gap-2 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 disabled:opacity-40 text-zinc-200 rounded-lg px-4 py-2 text-sm font-medium transition-colors"
+          >
+            {testing ? <Loader2 size={14} className="animate-spin"/> : <CheckCircle2 size={14} className="text-emerald-400"/>}
+            {testing ? 'Mengirim...' : 'Test Koneksi'}
+          </button>
+
+          <button
+            type="button"
+            onClick={handleSendNow}
+            disabled={sending || !botToken || !chatId}
+            className="flex items-center gap-2 bg-emerald-700 hover:bg-emerald-600 disabled:opacity-40 text-white rounded-lg px-4 py-2 text-sm font-medium transition-colors"
+          >
+            {sending ? <Loader2 size={14} className="animate-spin"/> : <Send size={14}/>}
+            {sending ? 'Mengirim Laporan...' : 'Kirim Laporan Sekarang'}
+          </button>
+        </div>
+      </form>
+    </div>
+  )
+}
+
 function PengaturanTab() {
   const { toast } = useToast()
   const [shopee, setShopee] = useState('')
@@ -704,7 +879,7 @@ function PengaturanTab() {
   }
 
   return (
-    <div className="max-w-md">
+    <div className="max-w-lg">
       <div className="flex items-center gap-2 mb-4">
         <Settings size={16} className="text-emerald-400"/>
         <h2 className="text-sm font-semibold text-zinc-200">Biaya Admin Platform</h2>
@@ -757,6 +932,9 @@ function PengaturanTab() {
           </button>
         </form>
       )}
+
+      {/* Telegram Notification Settings */}
+      <TelegramSection />
     </div>
   )
 }
