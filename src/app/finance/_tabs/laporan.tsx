@@ -1,10 +1,9 @@
 'use client'
 
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { formatRupiah, formatDate } from '@/lib/utils'
-import { BarChart3, TrendingUp, TrendingDown, Info, RefreshCw } from 'lucide-react'
-import { useToast } from '@/components/ui/toaster'
+import { BarChart3, TrendingUp, TrendingDown, Info } from 'lucide-react'
 
 function getDefaultRange() {
   const now = new Date(new Date().toLocaleString('en-US', { timeZone:'Asia/Jakarta' }))
@@ -19,8 +18,6 @@ export function LaporanTab() {
   const [dateFrom, setDateFrom] = useState(def.from)
   const [dateTo, setDateTo]     = useState(def.to)
   const [reportType, setReportType] = useState<'summary'|'pl'|'cashflow'|'balance-sheet'>('summary')
-  const [syncingHpp, setSyncingHpp] = useState(false)
-  const { toast } = useToast()
   const qc = useQueryClient()
 
   const { data, isLoading } = useQuery({
@@ -35,22 +32,20 @@ export function LaporanTab() {
     },
   })
 
-  const handleSyncHpp = async () => {
-    if (!confirm('Sinkronkan HPP semua order dari Master Produk?\n\nProses ini update Order.hpp = 0 berdasarkan HPP terkini di master produk.')) return
-    setSyncingHpp(true)
-    try {
-      const res = await fetch('/api/orders/backfill-hpp', { method: 'POST' })
-      const json = await res.json()
-      if (res.ok) {
-        toast({ title: json.data.message, type: 'success' })
-        qc.invalidateQueries({ queryKey: ['reports'] })
-      } else {
-        toast({ title: json.error || 'Gagal sinkron HPP', type: 'error' })
-      }
-    } catch (err: any) {
-      toast({ title: err.message, type: 'error' })
-    } finally { setSyncingHpp(false) }
-  }
+  // Auto backfill HPP di background — sekali per session
+  useEffect(() => {
+    const SESS_KEY = 'hpp_backfill_done'
+    if (sessionStorage.getItem(SESS_KEY)) return
+    fetch('/api/orders/backfill-hpp', { method: 'POST' })
+      .then(r => r.json())
+      .then(json => {
+        sessionStorage.setItem(SESS_KEY, '1')
+        if ((json?.data?.updated ?? 0) > 0) {
+          qc.invalidateQueries({ queryKey: ['reports'] })
+        }
+      })
+      .catch(() => {})
+  }, [qc])
 
   const setRange = (preset: string) => {
     const now = new Date(new Date().toLocaleString('en-US', { timeZone:'Asia/Jakarta' }))
@@ -211,13 +206,8 @@ export function LaporanTab() {
                       <span className="text-[11px] text-amber-400">
                         {(data.ordersFound ?? 0) === 0
                           ? 'HPP = 0. Data order belum terupload atau belum tersinkron dengan payout. Upload order CSV terlebih dahulu.'
-                          : 'HPP = 0. Pastikan HPP sudah diisi di Master Produk.'}
+                          : 'HPP = 0. Pastikan HPP sudah diisi di Master Produk. Sedang menyinkronkan otomatis...'}
                       </span>
-                      <button onClick={handleSyncHpp} disabled={syncingHpp}
-                        className="flex items-center gap-1 text-[11px] bg-amber-700/40 hover:bg-amber-700/70 disabled:opacity-50 text-amber-300 px-2 py-1 rounded-md transition-colors shrink-0">
-                        {syncingHpp ? <RefreshCw size={10} className="animate-spin"/> : <RefreshCw size={10}/>}
-                        Sinkron HPP Order
-                      </button>
                     </div>
                   )}
                 </div>
