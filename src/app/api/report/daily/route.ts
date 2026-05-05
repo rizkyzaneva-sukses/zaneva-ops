@@ -6,7 +6,11 @@ import { apiSuccess, apiError } from '@/lib/utils'
  * GET /api/report/daily?date=YYYY-MM-DD
  * Endpoint khusus untuk n8n → Telegram.
  * Dilindungi API key di header: Authorization: Bearer <REPORT_API_KEY>
- * Default: data kemarin (WIB)
+ * Default: hari ini WIB (laporan jam 17:30 untuk data hari berjalan)
+ *
+ * FIX: Menggunakan trx_date langsung (sama seperti dashboard/stats)
+ * karena COALESCE(trx_date, created_at) menyebabkan hasil 0 akibat
+ * perbedaan timezone handling antara kedua kolom.
  */
 export async function GET(request: NextRequest) {
   // ── Auth via API Key (tidak pakai session, untuk n8n) ──
@@ -17,34 +21,46 @@ export async function GET(request: NextRequest) {
     return apiError('Unauthorized', 401)
   }
 
-  // ── Tanggal target (default: kemarin WIB) ──
+  // ── Tanggal target (default: hari ini WIB) ──
   const { searchParams } = request.nextUrl
   const dateParam = searchParams.get('date') // YYYY-MM-DD
 
-  const nowWIB = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Jakarta' }))
-  let targetDate: Date
+  // Hitung tanggal WIB dengan cara yang reliable (tanpa toISOString yang bisa salah timezone)
+  let targetStr: string
   if (dateParam) {
-    targetDate = new Date(dateParam + 'T00:00:00+07:00')
+    targetStr = dateParam
   } else {
-    // Default: hari ini WIB (laporan jam 17:30 untuk data hari berjalan)
-    targetDate = new Date(nowWIB)
+    // Gunakan Intl.DateTimeFormat untuk mendapatkan tanggal WIB yang akurat
+    const now = new Date()
+    const wibParts = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Asia/Jakarta',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(now) // format: YYYY-MM-DD
+    targetStr = wibParts
   }
 
-  const targetStr = targetDate.toISOString().slice(0, 10)
-  const gte  = new Date(targetStr + 'T00:00:00+07:00')
-  const lte  = new Date(targetStr + 'T23:59:59+07:00')
+  // Date boundaries dalam WIB (UTC+7)
+  const gte = new Date(targetStr + 'T00:00:00+07:00')
+  const lte = new Date(targetStr + 'T23:59:59.999+07:00')
 
   // Hari sebelumnya untuk perbandingan
-  const prevDate  = new Date(targetDate)
+  const prevDate = new Date(gte)
   prevDate.setDate(prevDate.getDate() - 1)
-  const prevStr   = prevDate.toISOString().slice(0, 10)
-  const prevGte   = new Date(prevStr + 'T00:00:00+07:00')
-  const prevLte   = new Date(prevStr + 'T23:59:59+07:00')
+  const prevStr = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Jakarta',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(prevDate)
+  const prevGte = new Date(prevStr + 'T00:00:00+07:00')
+  const prevLte = new Date(prevStr + 'T23:59:59.999+07:00')
 
   const [todayOrders, prevOrders, stokKritis, aging, topPlatform] = await Promise.all([
 
-    // Order hari target — gunakan COALESCE(trx_date, created_at) agar order
-    // yang trx_date-nya NULL (belum di-backfill dari payout) tetap muncul
+    // Order hari target — gunakan trx_date langsung (sama seperti dashboard)
+    // Order tanpa trx_date (NULL) tidak masuk hitungan (belum di-backfill)
     prisma.$queryRaw<{
       group_key: string; cnt: bigint; total_omzet: bigint; total_hpp: bigint
     }[]>`
@@ -58,8 +74,8 @@ export async function GET(request: NextRequest) {
         COALESCE(SUM(real_omzet), 0) AS total_omzet,
         COALESCE(SUM(hpp * qty), 0) AS total_hpp
       FROM orders
-      WHERE COALESCE(trx_date, created_at) >= ${gte}
-        AND COALESCE(trx_date, created_at) <= ${lte}
+      WHERE trx_date >= ${gte}
+        AND trx_date <= ${lte}
       GROUP BY group_key
     `,
 
@@ -67,8 +83,8 @@ export async function GET(request: NextRequest) {
     prisma.$queryRaw<{ cnt: bigint; total_omzet: bigint }[]>`
       SELECT COUNT(*) AS cnt, COALESCE(SUM(real_omzet), 0) AS total_omzet
       FROM orders
-      WHERE COALESCE(trx_date, created_at) >= ${prevGte}
-        AND COALESCE(trx_date, created_at) <= ${prevLte}
+      WHERE trx_date >= ${prevGte}
+        AND trx_date <= ${prevLte}
         AND status NOT ILIKE '%batal%'
         AND status NOT ILIKE '%cancel%'
         AND status NOT ILIKE '%dibatalkan%'
@@ -108,7 +124,7 @@ export async function GET(request: NextRequest) {
       GROUP BY bucket
     `,
 
-    // Per platform hari ini
+    // Per platform hari ini — gunakan trx_date langsung
     prisma.$queryRaw<{ platform: string; cnt: bigint; total_omzet: bigint; total_hpp: bigint }[]>`
       SELECT
         COALESCE(platform, 'Unknown') AS platform,
@@ -116,8 +132,8 @@ export async function GET(request: NextRequest) {
         COALESCE(SUM(real_omzet), 0) AS total_omzet,
         COALESCE(SUM(hpp * qty), 0) AS total_hpp
       FROM orders
-      WHERE COALESCE(trx_date, created_at) >= ${gte}
-        AND COALESCE(trx_date, created_at) <= ${lte}
+      WHERE trx_date >= ${gte}
+        AND trx_date <= ${lte}
         AND status NOT ILIKE '%batal%'
         AND status NOT ILIKE '%cancel%'
         AND status NOT ILIKE '%dibatalkan%'
@@ -147,7 +163,7 @@ export async function GET(request: NextRequest) {
   const prevOmzet  = Number((prevOrders as any[])[0]?.total_omzet ?? 0)
   const prevCount  = Number((prevOrders as any[])[0]?.cnt ?? 0)
   const omzetDiff  = omzet - prevOmzet
-  const countDiff  = totalOrder - prevCount
+  const countDiff  = (terkirim + perluKirim) - prevCount
 
   const agingMap = Object.fromEntries((aging as any[]).map((r: any) => [r.bucket, Number(r.cnt)]))
   const agingOver48 = agingMap['>48 Jam'] ?? 0
