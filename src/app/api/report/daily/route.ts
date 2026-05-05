@@ -1,4 +1,5 @@
 import { NextRequest } from 'next/server'
+import { Prisma } from '@prisma/client'
 import { prisma } from '@/lib/prisma'
 import { apiSuccess, apiError } from '@/lib/utils'
 
@@ -41,10 +42,12 @@ export async function GET(request: NextRequest) {
     targetStr = wibParts
   }
 
-  // Date boundaries — gunakan string ISO untuk di-cast di SQL
+  // Date boundaries — gunakan Prisma.sql raw untuk inject langsung ke SQL
   // Ini menghindari masalah serialisasi Date object di Prisma $queryRaw
   const gteStr = targetStr + 'T00:00:00+07:00'
   const lteStr = targetStr + 'T23:59:59.999+07:00'
+  const gte = Prisma.sql`'${Prisma.raw(gteStr)}'::timestamptz`
+  const lte = Prisma.sql`'${Prisma.raw(lteStr)}'::timestamptz`
 
   // Hari sebelumnya untuk perbandingan
   const prevDate = new Date(gteStr)
@@ -57,11 +60,13 @@ export async function GET(request: NextRequest) {
   }).format(prevDate)
   const prevGteStr = prevStr + 'T00:00:00+07:00'
   const prevLteStr = prevStr + 'T23:59:59.999+07:00'
+  const prevGte = Prisma.sql`'${Prisma.raw(prevGteStr)}'::timestamptz`
+  const prevLte = Prisma.sql`'${Prisma.raw(prevLteStr)}'::timestamptz`
 
   const [todayOrders, prevOrders, stokKritis, aging, topPlatform] = await Promise.all([
 
     // Order hari target — gunakan trx_date langsung (sama seperti dashboard)
-    // Cast string ke timestamptz di SQL untuk menghindari masalah Prisma Date serialization
+    // Prisma.raw inject string langsung ke SQL, ::timestamptz cast di PostgreSQL
     prisma.$queryRaw<{
       group_key: string; cnt: bigint; total_omzet: bigint; total_hpp: bigint
     }[]>`
@@ -75,8 +80,8 @@ export async function GET(request: NextRequest) {
         COALESCE(SUM(real_omzet), 0) AS total_omzet,
         COALESCE(SUM(hpp * qty), 0) AS total_hpp
       FROM orders
-      WHERE trx_date >= ${gteStr}::timestamptz
-        AND trx_date <= ${lteStr}::timestamptz
+      WHERE trx_date >= ${gte}
+        AND trx_date <= ${lte}
       GROUP BY group_key
     `,
 
@@ -84,8 +89,8 @@ export async function GET(request: NextRequest) {
     prisma.$queryRaw<{ cnt: bigint; total_omzet: bigint }[]>`
       SELECT COUNT(*) AS cnt, COALESCE(SUM(real_omzet), 0) AS total_omzet
       FROM orders
-      WHERE trx_date >= ${prevGteStr}::timestamptz
-        AND trx_date <= ${prevLteStr}::timestamptz
+      WHERE trx_date >= ${prevGte}
+        AND trx_date <= ${prevLte}
         AND status NOT ILIKE '%batal%'
         AND status NOT ILIKE '%cancel%'
         AND status NOT ILIKE '%dibatalkan%'
@@ -133,8 +138,8 @@ export async function GET(request: NextRequest) {
         COALESCE(SUM(real_omzet), 0) AS total_omzet,
         COALESCE(SUM(hpp * qty), 0) AS total_hpp
       FROM orders
-      WHERE trx_date >= ${gteStr}::timestamptz
-        AND trx_date <= ${lteStr}::timestamptz
+      WHERE trx_date >= ${gte}
+        AND trx_date <= ${lte}
         AND status NOT ILIKE '%batal%'
         AND status NOT ILIKE '%cancel%'
         AND status NOT ILIKE '%dibatalkan%'
