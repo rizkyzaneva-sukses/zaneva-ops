@@ -1,29 +1,45 @@
 /**
  * Server-side scheduler for automatic daily Telegram report.
- * Runs every minute and checks if it's 17:30 WIB.
+ * Runs every 30 seconds and checks if it's 17:30 WIB.
  * If yes, triggers the cron-telegram endpoint.
+ * NOTE: Client-side scheduler (browser) is the primary trigger.
+ *       This server-side scheduler is a backup for when browser is closed.
  */
 
 let schedulerStarted = false
+// In-memory guard: reset on server restart, but we also cross-check DB
 let lastSentDate: string | null = null
 
 function getWIBTime(): { hours: number; minutes: number; dateStr: string } {
     const now = new Date()
-    // Convert to WIB (UTC+7)
-    const wibOffset = 7 * 60 // minutes
-    const utcMinutes = now.getUTCHours() * 60 + now.getUTCMinutes()
-    const wibMinutes = (utcMinutes + wibOffset) % (24 * 60)
-    const hours = Math.floor(wibMinutes / 60)
-    const minutes = wibMinutes % 60
-
-    // Get WIB date string
-    const wibTime = new Date(now.getTime() + wibOffset * 60 * 1000)
-    const y = wibTime.getUTCFullYear()
-    const m = String(wibTime.getUTCMonth() + 1).padStart(2, '0')
-    const d = String(wibTime.getUTCDate()).padStart(2, '0')
+    const wibStr = now.toLocaleString('en-US', { timeZone: 'Asia/Jakarta' })
+    const wib = new Date(wibStr)
+    const hours = wib.getHours()
+    const minutes = wib.getMinutes()
+    const y = wib.getFullYear()
+    const m = String(wib.getMonth() + 1).padStart(2, '0')
+    const d = String(wib.getDate()).padStart(2, '0')
     const dateStr = `${y}-${m}-${d}`
-
     return { hours, minutes, dateStr }
+}
+
+async function alreadySentTodayInDB(dateStr: string): Promise<boolean> {
+    try {
+        // Lazy import prisma so it's only loaded when needed
+        const { prisma } = await import('./prisma')
+        const rec = await prisma.appSetting.findUnique({ where: { key: 'last_auto_report_sent' } })
+        if (!rec?.value) return false
+        // last_auto_report_sent is an ISO timestamp — extract WIB date
+        const sent = new Date(rec.value)
+        const sentWibStr = sent.toLocaleString('en-US', { timeZone: 'Asia/Jakarta' })
+        const sentWib = new Date(sentWibStr)
+        const sy = sentWib.getFullYear()
+        const sm = String(sentWib.getMonth() + 1).padStart(2, '0')
+        const sd = String(sentWib.getDate()).padStart(2, '0')
+        return `${sy}-${sm}-${sd}` === dateStr
+    } catch {
+        return false
+    }
 }
 
 async function triggerReport(): Promise<void> {
@@ -35,9 +51,7 @@ async function triggerReport(): Promise<void> {
 
         const res = await fetch(`${baseUrl}/api/report/cron-telegram`, {
             method: 'GET',
-            headers: {
-                'x-internal-cron': cronSecret,
-            },
+            headers: { 'x-internal-cron': cronSecret },
         })
 
         const json = await res.json()
@@ -54,17 +68,25 @@ async function triggerReport(): Promise<void> {
     }
 }
 
-function checkAndTrigger(): void {
+async function checkAndTrigger(): Promise<void> {
     const { hours, minutes, dateStr } = getWIBTime()
 
-    // Trigger at 17:30 WIB (check window: 17:30-17:31 to avoid missing)
-    if (hours === 17 && minutes === 30) {
-        // Only send once per day
-        if (lastSentDate !== dateStr) {
-            lastSentDate = dateStr
-            triggerReport()
-        }
+    // Window 17:30-17:32 WIB (toleransi 2 menit)
+    if (hours !== 17 || minutes < 30 || minutes > 32) return
+
+    // In-memory guard sudah kirim hari ini
+    if (lastSentDate === dateStr) return
+
+    // Cross-check DB agar tidak double dengan client-side browser trigger
+    const alreadySent = await alreadySentTodayInDB(dateStr)
+    if (alreadySent) {
+        lastSentDate = dateStr // sinkronkan in-memory
+        console.log(`[REPORT-SCHEDULER] ⏭️ Sudah dikirim hari ini (${dateStr}), skip.`)
+        return
     }
+
+    lastSentDate = dateStr
+    await triggerReport()
 }
 
 export function startDailyReportScheduler(): void {
@@ -76,9 +98,9 @@ export function startDailyReportScheduler(): void {
     schedulerStarted = true
     console.log('[REPORT-SCHEDULER] 🚀 Daily report scheduler started (target: 17:30 WIB)')
 
-    // Check every 30 seconds to ensure we don't miss the window
-    setInterval(checkAndTrigger, 30_000)
+    // Check every 30 seconds
+    setInterval(() => { checkAndTrigger().catch(console.error) }, 30_000)
 
-    // Also check immediately on startup (in case server restarts at 17:30)
-    setTimeout(checkAndTrigger, 5_000)
+    // Check 5 detik setelah startup (handle restart tepat di jam 17:30)
+    setTimeout(() => { checkAndTrigger().catch(console.error) }, 5_000)
 }

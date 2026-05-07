@@ -685,6 +685,61 @@ function TelegramSection() {
       .finally(() => setFetching(false))
   }, [])
 
+  // Client-side auto-report scheduler: berjalan di browser, tidak bergantung pada server process
+  useEffect(() => {
+    if (!autoEnabled || !botToken || !chatId) return
+
+    const checkAndAutoSend = async () => {
+      const now = new Date()
+      // Konversi ke WIB (Asia/Jakarta)
+      const wibStr = now.toLocaleString('en-US', { timeZone: 'Asia/Jakarta' })
+      const wib = new Date(wibStr)
+      const h = wib.getHours()
+      const m = wib.getMinutes()
+
+      // Window 17:30 - 17:32 WIB (2 menit toleransi)
+      if (h !== 17 || m < 30 || m > 32) return
+
+      // Key unik per hari agar tidak kirim 2x
+      const y = wib.getFullYear()
+      const mo = String(wib.getMonth() + 1).padStart(2, '0')
+      const d = String(wib.getDate()).padStart(2, '0')
+      const todayKey = `auto_report_sent_${y}-${mo}-${d}`
+
+      if (localStorage.getItem(todayKey)) return
+      // Tandai dulu sebelum fetch agar tidak double-trigger
+      localStorage.setItem(todayKey, new Date().toISOString())
+
+      try {
+        const res = await fetch('/api/report/send-telegram', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({}),
+        })
+        const json = await res.json()
+        if (json.success) {
+          const sentAt = new Date().toISOString()
+          setLastSent(sentAt)
+          toast({ title: '📊 Auto-laporan 17:30 WIB berhasil dikirim ke Telegram!', type: 'success' })
+        } else {
+          // Hapus flag agar bisa retry
+          localStorage.removeItem(todayKey)
+          console.error('[AUTO-REPORT] Gagal kirim:', json.error)
+        }
+      } catch (err) {
+        localStorage.removeItem(todayKey)
+        console.error('[AUTO-REPORT] Error:', err)
+      }
+    }
+
+    // Cek setiap 60 detik
+    const interval = setInterval(checkAndAutoSend, 60_000)
+    // Langsung cek saat komponen mount (jika server restart pas jam 17:30)
+    checkAndAutoSend()
+
+    return () => clearInterval(interval)
+  }, [autoEnabled, botToken, chatId, toast])
+
   const handleToggleAuto = async () => {
     setTogglingAuto(true)
     const newValue = !autoEnabled
