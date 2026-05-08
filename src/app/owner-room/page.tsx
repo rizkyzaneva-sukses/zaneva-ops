@@ -670,6 +670,9 @@ function TelegramSection() {
   const [autoEnabled, setAutoEnabled] = useState(true)
   const [lastSent, setLastSent] = useState<string | null>(null)
   const [togglingAuto, setTogglingAuto] = useState(false)
+  const [schedulerAlive, setSchedulerAlive] = useState<boolean | null>(null)
+  const [schedulerStartedAt, setSchedulerStartedAt] = useState<string | null>(null)
+  const [schedulerHeartbeat, setSchedulerHeartbeat] = useState<string | null>(null)
 
   useEffect(() => {
     fetch('/api/settings')
@@ -683,6 +686,27 @@ function TelegramSection() {
         }
       })
       .finally(() => setFetching(false))
+  }, [])
+
+  // Cek status scheduler dari server
+  useEffect(() => {
+    const fetchStatus = () => {
+      fetch('/api/report/scheduler-status')
+        .then(r => r.json())
+        .then(d => {
+          if (d.success) {
+            setSchedulerAlive(d.scheduler.alive)
+            setSchedulerStartedAt(d.scheduler.startedAt)
+            setSchedulerHeartbeat(d.scheduler.lastHeartbeat)
+            if (d.autoReport.lastSentAt) setLastSent(d.autoReport.lastSentAt)
+          }
+        })
+        .catch(() => setSchedulerAlive(false))
+    }
+    fetchStatus()
+    // Refresh status setiap 5 menit
+    const t = setInterval(fetchStatus, 5 * 60_000)
+    return () => clearInterval(t)
   }, [])
 
   // Client-side auto-report scheduler: berjalan di browser, tidak bergantung pada server process
@@ -919,7 +943,7 @@ function TelegramSection() {
               </span>
             </div>
             <p className="text-xs text-zinc-500 mt-1">
-              Laporan akan dikirim otomatis setiap hari jam 17:30 WIB tanpa perlu klik manual.
+              Laporan dikirim otomatis oleh server — tidak perlu buka aplikasi.
             </p>
             {lastSent && (
               <p className="text-[10px] text-zinc-600 mt-1">
@@ -935,6 +959,50 @@ function TelegramSection() {
           >
             <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${autoEnabled ? 'translate-x-6' : 'translate-x-1'}`} />
           </button>
+        </div>
+
+        {/* Status Server Scheduler */}
+        <div className={`mt-3 rounded-lg px-3 py-2.5 text-xs flex items-start gap-2 ${
+          schedulerAlive === null
+            ? 'bg-zinc-800/50 border border-zinc-700/50 text-zinc-500'
+            : schedulerAlive
+              ? 'bg-emerald-900/20 border border-emerald-800/40 text-emerald-400'
+              : 'bg-red-900/20 border border-red-800/40 text-red-400'
+        }`}>
+          <span className="mt-0.5 shrink-0">
+            {schedulerAlive === null ? '⏳' : schedulerAlive ? '🟢' : '🔴'}
+          </span>
+          <div className="space-y-0.5">
+            {schedulerAlive === null && <p>Mengecek status server scheduler...</p>}
+            {schedulerAlive === true && (
+              <>
+                <p className="font-medium">Server scheduler berjalan normal</p>
+                {schedulerStartedAt && (
+                  <p className="text-emerald-600">
+                    Start: {new Date(schedulerStartedAt).toLocaleString('id-ID', { timeZone: 'Asia/Jakarta', dateStyle: 'short', timeStyle: 'medium' })}
+                  </p>
+                )}
+                {schedulerHeartbeat && (
+                  <p className="text-emerald-600">
+                    Heartbeat terakhir: {new Date(schedulerHeartbeat).toLocaleString('id-ID', { timeZone: 'Asia/Jakarta', dateStyle: 'short', timeStyle: 'medium' })}
+                  </p>
+                )}
+              </>
+            )}
+            {schedulerAlive === false && (
+              <>
+                <p className="font-medium">Server scheduler tidak terdeteksi</p>
+                <p className="text-red-500">
+                  Laporan tidak akan terkirim otomatis. Pastikan server sudah di-deploy ulang setelah update terbaru.
+                </p>
+                {schedulerHeartbeat && (
+                  <p className="text-red-600">
+                    Heartbeat terakhir: {new Date(schedulerHeartbeat).toLocaleString('id-ID', { timeZone: 'Asia/Jakarta', dateStyle: 'short', timeStyle: 'medium' })}
+                  </p>
+                )}
+              </>
+            )}
+          </div>
         </div>
       </div>
     </div>
