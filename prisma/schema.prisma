@@ -852,6 +852,18 @@ model AppSetting {
 }
 
 // ─────────────────────────────────────────────
+// Report Schedule (jadwal auto-report Telegram)
+// ─────────────────────────────────────────────
+model ReportSchedule {
+  id           String   @id @default(cuid())
+  cronSchedule String   @default("30 17 * * *") @map("cron_schedule") // WIB
+  isActive     Boolean  @default(true) @map("is_active")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  @@map("report_schedules")
+}
+
+// ─────────────────────────────────────────────
 // AI Insights (cache hasil analisis Gemini)
 // ─────────────────────────────────────────────
 model AiInsight {

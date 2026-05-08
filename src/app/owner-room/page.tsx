@@ -670,11 +670,13 @@ function TelegramSection() {
   const [autoEnabled, setAutoEnabled] = useState(true)
   const [lastSent, setLastSent] = useState<string | null>(null)
   const [togglingAuto, setTogglingAuto] = useState(false)
-  const [schedulerAlive, setSchedulerAlive] = useState<boolean | null>(null)
-  const [schedulerStartedAt, setSchedulerStartedAt] = useState<string | null>(null)
-  const [schedulerHeartbeat, setSchedulerHeartbeat] = useState<string | null>(null)
+  // Schedule picker
+  const [schedHour, setSchedHour] = useState(17)
+  const [schedMinute, setSchedMinute] = useState(30)
+  const [savingSched, setSavingSched] = useState(false)
 
   useEffect(() => {
+    // Load token + chat ID
     fetch('/api/settings')
       .then(r => r.json())
       .then(d => {
@@ -686,100 +688,58 @@ function TelegramSection() {
         }
       })
       .finally(() => setFetching(false))
-  }, [])
-
-  // Cek status scheduler dari server
-  useEffect(() => {
-    const fetchStatus = () => {
-      fetch('/api/report/scheduler-status')
-        .then(r => r.json())
-        .then(d => {
-          if (d.success) {
-            setSchedulerAlive(d.scheduler.alive)
-            setSchedulerStartedAt(d.scheduler.startedAt)
-            setSchedulerHeartbeat(d.scheduler.lastHeartbeat)
-            if (d.autoReport.lastSentAt) setLastSent(d.autoReport.lastSentAt)
-          }
-        })
-        .catch(() => setSchedulerAlive(false))
-    }
-    fetchStatus()
-    // Refresh status setiap 5 menit
-    const t = setInterval(fetchStatus, 5 * 60_000)
-    return () => clearInterval(t)
-  }, [])
-
-  // Client-side auto-report scheduler: berjalan di browser, tidak bergantung pada server process
-  useEffect(() => {
-    if (!autoEnabled || !botToken || !chatId) return
-
-    const checkAndAutoSend = async () => {
-      const now = new Date()
-      // Konversi ke WIB (Asia/Jakarta)
-      const wibStr = now.toLocaleString('en-US', { timeZone: 'Asia/Jakarta' })
-      const wib = new Date(wibStr)
-      const h = wib.getHours()
-      const m = wib.getMinutes()
-
-      // Window 17:30 - 17:32 WIB (2 menit toleransi)
-      if (h !== 17 || m < 30 || m > 32) return
-
-      // Key unik per hari agar tidak kirim 2x
-      const y = wib.getFullYear()
-      const mo = String(wib.getMonth() + 1).padStart(2, '0')
-      const d = String(wib.getDate()).padStart(2, '0')
-      const todayKey = `auto_report_sent_${y}-${mo}-${d}`
-
-      if (localStorage.getItem(todayKey)) return
-      // Tandai dulu sebelum fetch agar tidak double-trigger
-      localStorage.setItem(todayKey, new Date().toISOString())
-
-      try {
-        const res = await fetch('/api/report/send-telegram', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({}),
-        })
-        const json = await res.json()
-        if (json.success) {
-          const sentAt = new Date().toISOString()
-          setLastSent(sentAt)
-          toast({ title: '📊 Auto-laporan 17:30 WIB berhasil dikirim ke Telegram!', type: 'success' })
-        } else {
-          // Hapus flag agar bisa retry
-          localStorage.removeItem(todayKey)
-          console.error('[AUTO-REPORT] Gagal kirim:', json.error)
+    // Load schedule dari DB
+    fetch('/api/settings/report-schedule')
+      .then(r => r.json())
+      .then(d => {
+        if (d.success) {
+          setSchedHour(d.data.hour)
+          setSchedMinute(d.data.minute)
         }
-      } catch (err) {
-        localStorage.removeItem(todayKey)
-        console.error('[AUTO-REPORT] Error:', err)
-      }
-    }
-
-    // Cek setiap 60 detik
-    const interval = setInterval(checkAndAutoSend, 60_000)
-    // Langsung cek saat komponen mount (jika server restart pas jam 17:30)
-    checkAndAutoSend()
-
-    return () => clearInterval(interval)
-  }, [autoEnabled, botToken, chatId, toast])
+      })
+      .catch(() => {/* gunakan default */})
+  }, [])
 
   const handleToggleAuto = async () => {
     setTogglingAuto(true)
     const newValue = !autoEnabled
     try {
-      const res = await fetch('/api/settings', {
+      // Update AppSetting
+      const r1 = await fetch('/api/settings', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ key: 'auto_report_enabled', value: String(newValue) }),
       })
-      const json = await res.json()
-      if (!json.success) throw new Error(json.error)
+      const j1 = await r1.json()
+      if (!j1.success) throw new Error(j1.error)
+      // Update ReportSchedule.isActive
+      await fetch('/api/settings/report-schedule', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ isActive: newValue }),
+      })
       setAutoEnabled(newValue)
-      toast({ title: newValue ? '⏰ Auto report 17:30 WIB diaktifkan!' : '⏸️ Auto report dinonaktifkan', type: 'success' })
+      const timeLabel = `${String(schedHour).padStart(2,'0')}:${String(schedMinute).padStart(2,'0')}`
+      toast({ title: newValue ? `⏰ Auto report ${timeLabel} WIB diaktifkan!` : '⏸️ Auto report dinonaktifkan', type: 'success' })
     } catch (err: any) {
       toast({ title: err.message || 'Gagal mengubah setting', type: 'error' })
     } finally { setTogglingAuto(false) }
+  }
+
+  const handleSaveSchedule = async () => {
+    setSavingSched(true)
+    try {
+      const res = await fetch('/api/settings/report-schedule', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ hour: schedHour, minute: schedMinute }),
+      })
+      const json = await res.json()
+      if (!json.success) throw new Error(json.error)
+      toast({ title: `✅ Jadwal disimpan: ${String(schedHour).padStart(2,'0')}:${String(schedMinute).padStart(2,'0')} WIB — langsung aktif!`, type: 'success' })
+    } catch (err: any) {
+      toast({ title: err.message || 'Gagal simpan jadwal', type: 'error' })
+    } finally { setSavingSched(false) }
   }
 
   const handleSave = async (e: React.FormEvent) => {
@@ -932,18 +892,20 @@ function TelegramSection() {
         </div>
       </form>
 
-      {/* Auto Report Toggle */}
-      <div className="mt-6 pt-6 border-t border-zinc-800">
+      {/* Auto Report */}
+      <div className="mt-6 pt-6 border-t border-zinc-800 space-y-4">
+
+        {/* Toggle aktif/nonaktif */}
         <div className="flex items-center justify-between">
           <div>
             <div className="flex items-center gap-2">
-              <span className="text-sm font-medium text-zinc-200">⏰ Auto Report Jam 17:30 WIB</span>
+              <span className="text-sm font-medium text-zinc-200">⏰ Auto Report Harian</span>
               <span className={`text-[10px] rounded px-2 py-0.5 ${autoEnabled ? 'bg-emerald-900/40 border border-emerald-700/50 text-emerald-300' : 'bg-zinc-800 border border-zinc-700 text-zinc-500'}`}>
                 {autoEnabled ? 'AKTIF' : 'NONAKTIF'}
               </span>
             </div>
             <p className="text-xs text-zinc-500 mt-1">
-              Laporan dikirim otomatis oleh server — tidak perlu buka aplikasi.
+              Dikirim otomatis oleh server setiap hari — tidak perlu buka aplikasi.
             </p>
             {lastSent && (
               <p className="text-[10px] text-zinc-600 mt-1">
@@ -961,48 +923,43 @@ function TelegramSection() {
           </button>
         </div>
 
-        {/* Status Server Scheduler */}
-        <div className={`mt-3 rounded-lg px-3 py-2.5 text-xs flex items-start gap-2 ${
-          schedulerAlive === null
-            ? 'bg-zinc-800/50 border border-zinc-700/50 text-zinc-500'
-            : schedulerAlive
-              ? 'bg-emerald-900/20 border border-emerald-800/40 text-emerald-400'
-              : 'bg-red-900/20 border border-red-800/40 text-red-400'
-        }`}>
-          <span className="mt-0.5 shrink-0">
-            {schedulerAlive === null ? '⏳' : schedulerAlive ? '🟢' : '🔴'}
-          </span>
-          <div className="space-y-0.5">
-            {schedulerAlive === null && <p>Mengecek status server scheduler...</p>}
-            {schedulerAlive === true && (
-              <>
-                <p className="font-medium">Server scheduler berjalan normal</p>
-                {schedulerStartedAt && (
-                  <p className="text-emerald-600">
-                    Start: {new Date(schedulerStartedAt).toLocaleString('id-ID', { timeZone: 'Asia/Jakarta', dateStyle: 'short', timeStyle: 'medium' })}
-                  </p>
-                )}
-                {schedulerHeartbeat && (
-                  <p className="text-emerald-600">
-                    Heartbeat terakhir: {new Date(schedulerHeartbeat).toLocaleString('id-ID', { timeZone: 'Asia/Jakarta', dateStyle: 'short', timeStyle: 'medium' })}
-                  </p>
-                )}
-              </>
-            )}
-            {schedulerAlive === false && (
-              <>
-                <p className="font-medium">Server scheduler tidak terdeteksi</p>
-                <p className="text-red-500">
-                  Laporan tidak akan terkirim otomatis. Pastikan server sudah di-deploy ulang setelah update terbaru.
-                </p>
-                {schedulerHeartbeat && (
-                  <p className="text-red-600">
-                    Heartbeat terakhir: {new Date(schedulerHeartbeat).toLocaleString('id-ID', { timeZone: 'Asia/Jakarta', dateStyle: 'short', timeStyle: 'medium' })}
-                  </p>
-                )}
-              </>
-            )}
+        {/* Jam picker — bisa diubah tanpa restart server */}
+        <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-4">
+          <p className="text-xs text-zinc-400 font-medium mb-3">🕐 Jam Kirim Laporan (WIB)</p>
+          <div className="flex items-center gap-3">
+            <select
+              value={schedHour}
+              onChange={e => setSchedHour(Number(e.target.value))}
+              className="bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-200 focus:outline-none focus:border-sky-600"
+            >
+              {Array.from({ length: 24 }, (_, i) => (
+                <option key={i} value={i}>{String(i).padStart(2, '0')}</option>
+              ))}
+            </select>
+            <span className="text-zinc-400 font-bold">:</span>
+            <select
+              value={schedMinute}
+              onChange={e => setSchedMinute(Number(e.target.value))}
+              className="bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-200 focus:outline-none focus:border-sky-600"
+            >
+              {[0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55].map(m => (
+                <option key={m} value={m}>{String(m).padStart(2, '0')}</option>
+              ))}
+            </select>
+            <span className="text-xs text-zinc-500">WIB</span>
+            <button
+              type="button"
+              onClick={handleSaveSchedule}
+              disabled={savingSched}
+              className="flex items-center gap-1.5 bg-sky-700 hover:bg-sky-600 disabled:opacity-50 text-white rounded-lg px-3 py-2 text-xs font-medium transition-colors"
+            >
+              {savingSched ? <Loader2 size={12} className="animate-spin" /> : null}
+              {savingSched ? 'Menyimpan...' : 'Simpan Jadwal'}
+            </button>
           </div>
+          <p className="text-[10px] text-zinc-600 mt-2">
+            Perubahan langsung aktif tanpa perlu restart server.
+          </p>
         </div>
       </div>
     </div>
