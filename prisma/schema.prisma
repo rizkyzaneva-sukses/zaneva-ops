@@ -852,6 +852,20 @@ model AppSetting {
 }
 
 // ─────────────────────────────────────────────
+// Telegram Recipients (multi-penerima laporan)
+// ─────────────────────────────────────────────
+model TelegramRecipient {
+  id        String   @id @default(cuid())
+  name      String                          // label bebas, misal "Owner", "Group Ops"
+  chatId    String   @unique @map("chat_id") // bisa negatif untuk grup
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("telegram_recipients")
+}
+
+// ─────────────────────────────────────────────
 // Report Schedule (jadwal auto-report Telegram)
 // ─────────────────────────────────────────────
 model ReportSchedule {

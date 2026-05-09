@@ -674,6 +674,15 @@ function TelegramSection() {
   const [schedHour, setSchedHour] = useState(17)
   const [schedMinute, setSchedMinute] = useState(30)
   const [savingSched, setSavingSched] = useState(false)
+  // Recipients
+  type Recipient = { id: string; name: string; chatId: string; isActive: boolean }
+  const [recipients, setRecipients] = useState<Recipient[]>([])
+  const [loadingRecipients, setLoadingRecipients] = useState(true)
+  const [showAddForm, setShowAddForm] = useState(false)
+  const [newName, setNewName] = useState('')
+  const [newChatId, setNewChatId] = useState('')
+  const [addingRecipient, setAddingRecipient] = useState(false)
+  const [testingId, setTestingId] = useState<string | null>(null)
 
   useEffect(() => {
     // Load token + chat ID
@@ -691,14 +700,68 @@ function TelegramSection() {
     // Load schedule dari DB
     fetch('/api/settings/report-schedule')
       .then(r => r.json())
-      .then(d => {
-        if (d.success) {
-          setSchedHour(d.data.hour)
-          setSchedMinute(d.data.minute)
-        }
-      })
-      .catch(() => {/* gunakan default */})
+      .then(d => { if (d.success) { setSchedHour(d.data.hour); setSchedMinute(d.data.minute) } })
+      .catch(() => {})
+    // Load recipients
+    fetch('/api/settings/telegram-recipients')
+      .then(r => r.json())
+      .then(d => { if (d.success) setRecipients(d.data) })
+      .finally(() => setLoadingRecipients(false))
   }, [])
+
+  const loadRecipients = () => {
+    fetch('/api/settings/telegram-recipients')
+      .then(r => r.json())
+      .then(d => { if (d.success) setRecipients(d.data) })
+  }
+
+  const handleAddRecipient = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setAddingRecipient(true)
+    try {
+      const res = await fetch('/api/settings/telegram-recipients', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: newName, chatId: newChatId }),
+      })
+      const json = await res.json()
+      if (!json.success) throw new Error(json.error)
+      setNewName(''); setNewChatId(''); setShowAddForm(false)
+      loadRecipients()
+      toast({ title: `✅ ${newName} ditambahkan sebagai penerima laporan`, type: 'success' })
+    } catch (err: any) {
+      toast({ title: err.message || 'Gagal menambah recipient', type: 'error' })
+    } finally { setAddingRecipient(false) }
+  }
+
+  const handleToggleRecipient = async (id: string, current: boolean) => {
+    const res = await fetch(`/api/settings/telegram-recipients/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ isActive: !current }),
+    })
+    const json = await res.json()
+    if (json.success) loadRecipients()
+  }
+
+  const handleDeleteRecipient = async (id: string, name: string) => {
+    if (!confirm(`Hapus "${name}" dari daftar penerima?`)) return
+    await fetch(`/api/settings/telegram-recipients/${id}`, { method: 'DELETE' })
+    loadRecipients()
+    toast({ title: `🗑️ ${name} dihapus`, type: 'success' })
+  }
+
+  const handleTestRecipient = async (id: string, name: string) => {
+    setTestingId(id)
+    try {
+      const res = await fetch(`/api/settings/telegram-recipients/${id}?action=test`, { method: 'POST' })
+      const json = await res.json()
+      if (!json.success) throw new Error(json.error)
+      toast({ title: `✅ Test terkirim ke ${name}!`, type: 'success' })
+    } catch (err: any) {
+      toast({ title: `❌ ${err.message}`, type: 'error' })
+    } finally { setTestingId(null) }
+  }
 
   const handleToggleAuto = async () => {
     setTogglingAuto(true)
@@ -960,6 +1023,114 @@ function TelegramSection() {
           <p className="text-[10px] text-zinc-600 mt-2">
             Perubahan langsung aktif tanpa perlu restart server.
           </p>
+        </div>
+
+        {/* Daftar Penerima Laporan */}
+        <div className="mt-4 pt-4 border-t border-zinc-800">
+          <div className="flex items-center justify-between mb-3">
+            <div>
+              <p className="text-xs text-zinc-400 font-medium">
+                📬 Penerima Laporan
+                {recipients.length > 0 && (
+                  <span className="ml-2 text-[10px] text-zinc-600">
+                    {recipients.filter(r => r.isActive).length} aktif dari {recipients.length}
+                  </span>
+                )}
+              </p>
+              <p className="text-[10px] text-zinc-600 mt-0.5">Laporan dikirim ke semua penerima aktif. Grup pakai Chat ID negatif.</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowAddForm(v => !v)}
+              className="text-xs bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-zinc-300 rounded-lg px-3 py-1.5 transition-colors"
+            >
+              {showAddForm ? '✕ Batal' : '+ Tambah'}
+            </button>
+          </div>
+
+          {/* Form tambah recipient */}
+          {showAddForm && (
+            <form onSubmit={handleAddRecipient} className="bg-zinc-900 border border-zinc-700 rounded-xl p-3 mb-3 space-y-2">
+              <input
+                type="text"
+                placeholder="Nama (misal: Owner, Group Ops)"
+                value={newName}
+                onChange={e => setNewName(e.target.value)}
+                required
+                className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-200 focus:outline-none focus:border-sky-600"
+              />
+              <input
+                type="text"
+                placeholder="Chat ID (misal: 565228988 atau -100123456789)"
+                value={newChatId}
+                onChange={e => setNewChatId(e.target.value)}
+                required
+                className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-200 font-mono focus:outline-none focus:border-sky-600"
+              />
+              <button
+                type="submit"
+                disabled={addingRecipient}
+                className="flex items-center gap-1.5 bg-emerald-700 hover:bg-emerald-600 disabled:opacity-50 text-white rounded-lg px-3 py-1.5 text-xs font-medium"
+              >
+                {addingRecipient ? <Loader2 size={11} className="animate-spin" /> : null}
+                {addingRecipient ? 'Menambahkan...' : 'Tambahkan'}
+              </button>
+            </form>
+          )}
+
+          {/* List recipients */}
+          {loadingRecipients ? (
+            <div className="flex items-center gap-2 text-zinc-600 text-xs py-2">
+              <Loader2 size={12} className="animate-spin" /> Memuat...
+            </div>
+          ) : recipients.length === 0 ? (
+            <div className="text-xs text-zinc-600 py-3 text-center border border-dashed border-zinc-800 rounded-lg">
+              Belum ada penerima. Klik <strong>+ Tambah</strong> untuk menambahkan.<br />
+              <span className="text-[10px]">Jika kosong, laporan dikirim ke Chat ID di atas (konfigurasi lama).</span>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {recipients.map(r => (
+                <div key={r.id} className="flex items-center gap-2 bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2.5">
+                  {/* Status dot */}
+                  <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${r.isActive ? 'bg-emerald-500' : 'bg-zinc-600'}`} />
+                  {/* Info */}
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-medium text-zinc-200 truncate">{r.name}</p>
+                    <p className="text-[10px] text-zinc-500 font-mono truncate">{r.chatId}</p>
+                  </div>
+                  {/* Actions */}
+                  <div className="flex items-center gap-1 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => handleTestRecipient(r.id, r.name)}
+                      disabled={testingId === r.id}
+                      title="Test kirim pesan"
+                      className="text-[10px] text-zinc-500 hover:text-sky-400 px-1.5 py-1 rounded transition-colors disabled:opacity-40"
+                    >
+                      {testingId === r.id ? <Loader2 size={11} className="animate-spin" /> : 'Test'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleToggleRecipient(r.id, r.isActive)}
+                      title={r.isActive ? 'Nonaktifkan' : 'Aktifkan'}
+                      className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${r.isActive ? 'bg-emerald-600' : 'bg-zinc-700'}`}
+                    >
+                      <span className={`inline-block h-3 w-3 transform rounded-full bg-white transition-transform ${r.isActive ? 'translate-x-5' : 'translate-x-1'}`} />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteRecipient(r.id, r.name)}
+                      title="Hapus"
+                      className="text-zinc-600 hover:text-red-400 px-1 py-1 rounded transition-colors"
+                    >
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/></svg>
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </div>
     </div>
