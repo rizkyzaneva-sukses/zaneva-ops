@@ -17,7 +17,7 @@ export async function GET() {
 /** POST /api/settings/telegram-recipients — tambah recipient baru */
 export async function POST(req: NextRequest) {
     if (!await requireOwner()) return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 })
-    const { name, chatId } = await req.json()
+    const { name, chatId, threadId } = await req.json()
 
     if (!name?.trim() || !chatId?.trim())
         return NextResponse.json({ success: false, error: 'Name dan Chat ID wajib diisi' }, { status: 400 })
@@ -28,7 +28,11 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ success: false, error: 'Chat ID sudah terdaftar' }, { status: 409 })
 
     const row = await prisma.telegramRecipient.create({
-        data: { name: name.trim(), chatId: chatId.trim() },
+        data: {
+            name: name.trim(),
+            chatId: chatId.trim(),
+            threadId: threadId?.trim() || null,
+        },
     })
     return NextResponse.json({ success: true, data: row }, { status: 201 })
 }

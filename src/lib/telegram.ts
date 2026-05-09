@@ -22,11 +22,15 @@ async function getBotToken(): Promise<string | null> {
     return (await getSetting('telegram_bot_token')) || process.env.TELEGRAM_BOT_TOKEN || null
 }
 
-async function sendToChat(botToken: string, chatId: string, text: string): Promise<void> {
+async function sendToChat(botToken: string, chatId: string, text: string, threadId?: string | null): Promise<void> {
+    const payload: Record<string, unknown> = { chat_id: chatId, text, parse_mode: 'HTML' }
+    // Support Telegram Group Topics (Supergroup dengan forum/topics aktif)
+    if (threadId) payload.message_thread_id = Number(threadId)
+
     const res = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ chat_id: chatId, text, parse_mode: 'HTML' }),
+        body: JSON.stringify(payload),
     })
     if (!res.ok) {
         const body = await res.text()
@@ -46,10 +50,10 @@ export async function broadcastTelegramReport(text: string): Promise<{ sent: num
     }
 
     // Ambil semua recipient aktif dari tabel
-    let recipients: { chatId: string; name: string }[] = []
+    let recipients: { chatId: string; name: string; threadId?: string | null }[] = []
     try {
         const rows = await prisma.telegramRecipient.findMany({ where: { isActive: true } })
-        recipients = rows.map(r => ({ chatId: r.chatId, name: r.name }))
+        recipients = rows.map(r => ({ chatId: r.chatId, name: r.name, threadId: r.threadId }))
     } catch { /* tabel belum ada / error DB — gunakan fallback */ }
 
     // Fallback ke AppSetting / env jika tabel kosong
@@ -65,9 +69,10 @@ export async function broadcastTelegramReport(text: string): Promise<{ sent: num
     let sent = 0, failed = 0
     for (const r of recipients) {
         try {
-            await sendToChat(botToken, r.chatId, text)
+            await sendToChat(botToken, r.chatId, text, r.threadId)
+            const dest = r.threadId ? `${r.chatId}/topic:${r.threadId}` : r.chatId
             sent++
-            console.log(`[telegram] ✅ Terkirim ke ${r.name} (${r.chatId})`)
+            console.log(`[telegram] ✅ Terkirim ke ${r.name} (${dest})`)
         } catch (err: any) {
             failed++
             console.error(`[telegram] ❌ Gagal kirim ke ${r.name} (${r.chatId}): ${err.message}`)

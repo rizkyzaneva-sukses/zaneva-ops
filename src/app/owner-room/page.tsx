@@ -675,12 +675,13 @@ function TelegramSection() {
   const [schedMinute, setSchedMinute] = useState(30)
   const [savingSched, setSavingSched] = useState(false)
   // Recipients
-  type Recipient = { id: string; name: string; chatId: string; isActive: boolean }
+  type Recipient = { id: string; name: string; chatId: string; threadId?: string | null; isActive: boolean }
   const [recipients, setRecipients] = useState<Recipient[]>([])
   const [loadingRecipients, setLoadingRecipients] = useState(true)
   const [showAddForm, setShowAddForm] = useState(false)
   const [newName, setNewName] = useState('')
   const [newChatId, setNewChatId] = useState('')
+  const [newThreadId, setNewThreadId] = useState('')
   const [addingRecipient, setAddingRecipient] = useState(false)
   const [testingId, setTestingId] = useState<string | null>(null)
 
@@ -722,11 +723,11 @@ function TelegramSection() {
       const res = await fetch('/api/settings/telegram-recipients', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: newName, chatId: newChatId }),
+        body: JSON.stringify({ name: newName, chatId: newChatId, threadId: newThreadId || null }),
       })
       const json = await res.json()
       if (!json.success) throw new Error(json.error)
-      setNewName(''); setNewChatId(''); setShowAddForm(false)
+      setNewName(''); setNewChatId(''); setNewThreadId(''); setShowAddForm(false)
       loadRecipients()
       toast({ title: `✅ ${newName} ditambahkan sebagai penerima laporan`, type: 'success' })
     } catch (err: any) {
@@ -1053,7 +1054,7 @@ function TelegramSection() {
             <form onSubmit={handleAddRecipient} className="bg-zinc-900 border border-zinc-700 rounded-xl p-3 mb-3 space-y-2">
               <input
                 type="text"
-                placeholder="Nama (misal: Owner, Group Ops)"
+                placeholder="Nama (misal: Owner, Group Laporan)"
                 value={newName}
                 onChange={e => setNewName(e.target.value)}
                 required
@@ -1061,12 +1062,24 @@ function TelegramSection() {
               />
               <input
                 type="text"
-                placeholder="Chat ID (misal: 565228988 atau -100123456789)"
+                placeholder="Chat ID (misal: 565228988 atau -100123456789 untuk grup)"
                 value={newChatId}
                 onChange={e => setNewChatId(e.target.value)}
                 required
                 className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-200 font-mono focus:outline-none focus:border-sky-600"
               />
+              <div>
+                <input
+                  type="text"
+                  placeholder="Thread/Topic ID — opsional, hanya untuk grup dengan Topics"
+                  value={newThreadId}
+                  onChange={e => setNewThreadId(e.target.value)}
+                  className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-200 font-mono focus:outline-none focus:border-sky-600"
+                />
+                <p className="text-[10px] text-zinc-600 mt-1">
+                  Cara dapat Thread ID: buka topic di grup → klik kanan → Copy Link → angka di akhir URL
+                </p>
+              </div>
               <button
                 type="submit"
                 disabled={addingRecipient}
@@ -1097,7 +1110,10 @@ function TelegramSection() {
                   {/* Info */}
                   <div className="flex-1 min-w-0">
                     <p className="text-xs font-medium text-zinc-200 truncate">{r.name}</p>
-                    <p className="text-[10px] text-zinc-500 font-mono truncate">{r.chatId}</p>
+                    <p className="text-[10px] text-zinc-500 font-mono truncate">
+                      {r.chatId}
+                      {r.threadId && <span className="text-zinc-600"> · topic:{r.threadId}</span>}
+                    </p>
                   </div>
                   {/* Actions */}
                   <div className="flex items-center gap-1 shrink-0">

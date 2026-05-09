@@ -856,8 +856,9 @@ model AppSetting {
 // ─────────────────────────────────────────────
 model TelegramRecipient {
   id        String   @id @default(cuid())
-  name      String                          // label bebas, misal "Owner", "Group Ops"
+  name      String                           // label bebas, misal "Owner", "Group Ops"
   chatId    String   @unique @map("chat_id") // bisa negatif untuk grup
+  threadId  String?  @map("thread_id")       // opsional: Topic ID untuk Grup dengan Topics
   isActive  Boolean  @default(true) @map("is_active")
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
