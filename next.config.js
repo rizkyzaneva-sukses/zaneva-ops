@@ -5,9 +5,7 @@ const nextConfig = {
   images: {
     remotePatterns: [],
   },
-  experimental: {
-    instrumentationHook: true,
-  },
+  // instrumentationHook tidak perlu di Next.js 15 (sudah stable)
   webpack: (config, { isServer }) => {
     if (isServer) {
       // node-cron must not be bundled by webpack — it uses Node.js APIs
