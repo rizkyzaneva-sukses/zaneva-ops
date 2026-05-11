@@ -15,6 +15,7 @@ const PUBLIC_ROUTES = [
   '/api/report/cron-telegram',
   '/api/telegram/webhook',     // Telegram bot webhook — diproteksi di dalam handler (whitelist chat ID)
   '/api/telegram/set-webhook', // Setup webhook — diproteksi dengan secret query param
+  '/api/telegram/adye-models', // Debug: cek model list Adye
 ]
 
 // Routes only for OWNER
