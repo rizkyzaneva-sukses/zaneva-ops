@@ -32,9 +32,11 @@ export async function GET(req: NextRequest) {
         return NextResponse.json({ success: false, error: 'Bot token tidak ditemukan' }, { status: 400 })
     }
 
-    // Tentukan webhook URL dari request origin
-    const origin = req.nextUrl.origin
-    const webhookUrl = `${origin}/api/telegram/webhook`
+    // Tentukan webhook URL — gunakan NEXT_PUBLIC_APP_URL (domain publik)
+    // req.nextUrl.origin di dalam Docker container mengembalikan 0.0.0.0:3000 (internal)
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL || req.nextUrl.origin
+    const baseUrl = appUrl.startsWith('http') ? appUrl.replace(/\/$/, '') : `https://${appUrl}`
+    const webhookUrl = `${baseUrl}/api/telegram/webhook`
 
     // Daftarkan ke Telegram
     const res = await fetch(`https://api.telegram.org/bot${botToken}/setWebhook`, {
