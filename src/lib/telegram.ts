@@ -85,8 +85,8 @@ export async function broadcastTelegramReport(text: string): Promise<{ sent: num
 /**
  * Kirim pesan test ke chatId spesifik (untuk tombol Test per-recipient).
  */
-export async function sendTelegramTest(chatId: string, text: string): Promise<void> {
+export async function sendTelegramTest(chatId: string, text: string, threadId?: string | null): Promise<void> {
     const botToken = await getBotToken()
     if (!botToken) throw new Error('Bot token belum dikonfigurasi')
-    await sendToChat(botToken, chatId, text)
+    await sendToChat(botToken, chatId, text, threadId)
 }
