@@ -17,8 +17,10 @@ export async function PATCH(req: NextRequest, ctx: RouteContext) {
     const { id } = await ctx.params
     const body = await req.json()
     const data: Record<string, unknown> = {}
-    if (body.isActive !== undefined) data.isActive = Boolean(body.isActive)
-    if (body.name !== undefined) data.name = String(body.name).trim()
+    if (body.isActive  !== undefined) data.isActive  = Boolean(body.isActive)
+    if (body.name      !== undefined) data.name      = String(body.name).trim()
+    if (body.chatId    !== undefined) data.chatId    = String(body.chatId).trim()
+    if (body.threadId  !== undefined) data.threadId  = body.threadId?.toString().trim() || null
 
     const row = await prisma.telegramRecipient.update({ where: { id }, data })
     return NextResponse.json({ success: true, data: row })
@@ -47,7 +49,8 @@ export async function POST(req: NextRequest, ctx: RouteContext) {
     try {
         await sendTelegramTest(
             row.chatId,
-            `✅ <b>Test Koneksi Elyasr Ops</b>\n\nHalo <b>${row.name}</b>! Koneksi berhasil.\n📅 ${now} WIB\n\n<i>Laporan harian akan dikirim ke sini sesuai jadwal.</i>`
+            `✅ <b>Test Koneksi Elyasr Ops</b>\n\nHalo <b>${row.name}</b>! Koneksi berhasil.\n📅 ${now} WIB\n\n<i>Laporan harian akan dikirim ke sini sesuai jadwal.</i>`,
+            row.threadId  // kirim ke topic jika threadId diset
         )
         return NextResponse.json({ success: true, message: `Test terkirim ke ${row.name}` })
     } catch (err: any) {
