@@ -11,7 +11,13 @@ import { prisma } from '@/lib/prisma'
 // ─────────────────────────────────────────────
 type Period = 'today' | 'yesterday' | 'week' | 'month'
 
-function getDateRange(period: Period) {
+interface DateRangeResult {
+    gte: Date
+    lte: Date
+    label: string
+}
+
+function getDateRange(period: Period): DateRangeResult {
     const nowWIB = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Jakarta' }))
     const y = nowWIB.getFullYear()
     const m = String(nowWIB.getMonth() + 1).padStart(2, '0')
@@ -56,6 +62,27 @@ function getDateRange(period: Period) {
     }
 }
 
+function fmtWIBDate(d: Date): string {
+    const wib = new Date(d.toLocaleString('en-US', { timeZone: 'Asia/Jakarta' }))
+    const months = ['Jan','Feb','Mar','Apr','Mei','Jun','Jul','Ags','Sep','Okt','Nov','Des']
+    return `${wib.getDate()} ${months[wib.getMonth()]} ${wib.getFullYear()}`
+}
+
+function getCustomDateRange(startDate: string, endDate?: string): DateRangeResult {
+    const gte = new Date(startDate + 'T00:00:00+07:00')
+    const lteStr = endDate || startDate
+    const lte = new Date(lteStr + 'T23:59:59+07:00')
+    const label = endDate && endDate !== startDate
+        ? `${fmtWIBDate(gte)} – ${fmtWIBDate(lte)}`
+        : fmtWIBDate(gte)
+    return { gte, lte, label }
+}
+
+function resolveRange(period?: string, startDate?: string, endDate?: string): DateRangeResult {
+    if (startDate) return getCustomDateRange(startDate, endDate)
+    return getDateRange((period || 'today') as Period)
+}
+
 function formatRp(n: number) {
     return 'Rp ' + Math.round(n).toLocaleString('id-ID')
 }
@@ -63,8 +90,8 @@ function formatRp(n: number) {
 // ─────────────────────────────────────────────
 // Tool 1: Ranking produk terlaris
 // ─────────────────────────────────────────────
-export async function getSalesRanking(period: string, limit: number = 10) {
-    const range = getDateRange((period || 'week') as Period)
+export async function getSalesRanking(period?: string, limit: number = 10, startDate?: string, endDate?: string) {
+    const range = resolveRange(period || 'week', startDate, endDate)
 
     const rows = await prisma.$queryRaw<any[]>`
         SELECT
@@ -100,8 +127,8 @@ export async function getSalesRanking(period: string, limit: number = 10) {
 // ─────────────────────────────────────────────
 // Tool 2: Ringkasan omzet & profit
 // ─────────────────────────────────────────────
-export async function getRevenueSummary(period: string) {
-    const range = getDateRange((period || 'today') as Period)
+export async function getRevenueSummary(period?: string, startDate?: string, endDate?: string) {
+    const range = resolveRange(period || 'today', startDate, endDate)
 
     const rows = await prisma.$queryRaw<any[]>`
         SELECT
@@ -208,8 +235,8 @@ export async function getStockLevels(filter: string = 'low', limit: number = 20)
 // ─────────────────────────────────────────────
 // Tool 4: Ringkasan order per status
 // ─────────────────────────────────────────────
-export async function getOrdersSummary(period: string) {
-    const range = getDateRange((period || 'today') as Period)
+export async function getOrdersSummary(period?: string, startDate?: string, endDate?: string) {
+    const range = resolveRange(period || 'today', startDate, endDate)
 
     const rows = await prisma.$queryRaw<any[]>`
         SELECT
@@ -263,8 +290,8 @@ export async function getOrdersSummary(period: string) {
 // ─────────────────────────────────────────────
 // Tool 5: Breakdown per platform
 // ─────────────────────────────────────────────
-export async function getPlatformBreakdown(period: string) {
-    const range = getDateRange((period || 'week') as Period)
+export async function getPlatformBreakdown(period?: string, startDate?: string, endDate?: string) {
+    const range = resolveRange(period || 'week', startDate, endDate)
 
     const rows = await prisma.$queryRaw<any[]>`
         SELECT
