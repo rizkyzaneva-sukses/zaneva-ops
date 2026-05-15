@@ -130,27 +130,36 @@ export async function getSalesRanking(period?: string, limit: number = 10, start
 export async function getRevenueSummary(period?: string, startDate?: string, endDate?: string) {
     const range = resolveRange(period || 'today', startDate, endDate)
 
+    // Gunakan GROUP BY status (sama dengan daily-report & dashboard) agar HPP terhitung benar
     const rows = await prisma.$queryRaw<any[]>`
         SELECT
-            COUNT(*)::int AS total_orders,
-            SUM(CASE WHEN status NOT ILIKE '%batal%' AND status NOT ILIKE '%cancel%' AND status NOT ILIKE '%dibatalkan%' THEN 1 ELSE 0 END)::int AS valid_orders,
-            COALESCE(SUM(CASE WHEN status NOT ILIKE '%batal%' AND status NOT ILIKE '%cancel%' AND status NOT ILIKE '%dibatalkan%' THEN real_omzet ELSE 0 END), 0)::bigint AS total_omzet,
-            COALESCE(SUM(CASE WHEN status NOT ILIKE '%batal%' AND status NOT ILIKE '%cancel%' AND status NOT ILIKE '%dibatalkan%' THEN hpp * qty ELSE 0 END), 0)::bigint AS total_hpp,
-            SUM(CASE WHEN status ILIKE '%batal%' OR status ILIKE '%cancel%' OR status ILIKE '%dibatalkan%' THEN 1 ELSE 0 END)::int AS batal_count
+            CASE
+                WHEN status ILIKE '%batal%' OR status ILIKE '%cancel%' OR status ILIKE '%dibatalkan%' THEN 'batal'
+                ELSE 'valid'
+            END AS grp,
+            COUNT(*)::int AS cnt,
+            COALESCE(SUM(real_omzet), 0)::bigint AS total_omzet,
+            COALESCE(SUM(hpp * qty), 0)::bigint AS total_hpp
         FROM orders
         WHERE trx_date >= ${range.gte} AND trx_date <= ${range.lte}
+        GROUP BY grp
     `
 
-    const r = rows[0]
-    const omzet = Number(r?.total_omzet ?? 0)
-    const hpp   = Number(r?.total_hpp   ?? 0)
+    const map = Object.fromEntries(rows.map(r => [
+        r.grp,
+        { cnt: Number(r.cnt), omzet: Number(r.total_omzet), hpp: Number(r.total_hpp) }
+    ]))
+    const valid = map['valid'] ?? { cnt: 0, omzet: 0, hpp: 0 }
+    const batal = map['batal'] ?? { cnt: 0, omzet: 0, hpp: 0 }
+    const omzet = valid.omzet
+    const hpp   = valid.hpp
     const gp    = omzet - hpp
 
     return {
         period: range.label,
-        totalOrders: Number(r?.total_orders  ?? 0),
-        validOrders: Number(r?.valid_orders  ?? 0),
-        batalCount:  Number(r?.batal_count   ?? 0),
+        totalOrders: valid.cnt + batal.cnt,
+        validOrders: valid.cnt,
+        batalCount:  batal.cnt,
         omzet:       formatRp(omzet),
         hpp:         formatRp(hpp),
         grossProfit: formatRp(gp),
