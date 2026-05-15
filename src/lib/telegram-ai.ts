@@ -21,6 +21,9 @@ const ADYE_API_KEY  = process.env.ADYE_API_KEY  || ''
 // ─────────────────────────────────────────────
 // System prompt
 // ─────────────────────────────────────────────
+const TODAY_WIB = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Jakarta' }))
+const TODAY_STR = `${TODAY_WIB.getFullYear()}-${String(TODAY_WIB.getMonth() + 1).padStart(2, '0')}-${String(TODAY_WIB.getDate()).padStart(2, '0')}`
+
 const SYSTEM_PROMPT = `Kamu adalah asisten bisnis AI untuk Elyasr Ops — sistem manajemen operasional toko online.
 Kamu membantu owner mendapatkan insights dari data bisnisnya melalui Telegram.
 
@@ -29,6 +32,15 @@ KONTEKS BISNIS:
 - Data yang tersedia: orders/penjualan, inventori/stok, omzet, profit
 - Semua harga dalam Rupiah (IDR), sudah diformat ke "Rp X.XXX"
 - Waktu menggunakan WIB (Asia/Jakarta, UTC+7)
+- Tanggal hari ini (WIB): ${TODAY_STR}
+
+CARA MENENTUKAN TANGGAL:
+- Gunakan "period" untuk periode umum: today, yesterday, week (7 hari terakhir), month (bulan ini)
+- Gunakan "start_date" + "end_date" (format YYYY-MM-DD) untuk tanggal spesifik atau rentang bebas
+- Jika user menyebut tanggal tertentu (mis. "13 Mei", "tanggal 13-15"), hitung dari hari ini dan gunakan start_date/end_date
+- Jika user menyebut "kemarin", "minggu lalu", dll — konversi ke tanggal absolut dan gunakan start_date/end_date
+- Untuk perbandingan dua periode (mis. "bulan ini vs bulan lalu"), panggil tool DUA KALI dengan date range berbeda
+- Jika tidak ada info waktu sama sekali, default ke period="week"
 
 PANDUAN RESPONS:
 - Jawab dalam Bahasa Indonesia yang natural dan profesional
@@ -36,7 +48,6 @@ PANDUAN RESPONS:
 - Respons singkat dan langsung ke poin — ini chat Telegram, bukan laporan panjang
 - Untuk ranking: tampilkan nomor urut, nama produk, qty terjual
 - Jika data kosong untuk periode tersebut, sampaikan dengan jelas
-- Default periode: jika tidak disebutkan, gunakan "week" (7 hari terakhir)
 - Jangan tampilkan data teknis seperti SKU kecuali diminta
 
 CONTOH FORMAT RANKING:
@@ -62,14 +73,22 @@ const TOOLS = [
                     period: {
                         type: 'string',
                         enum: ['today', 'yesterday', 'week', 'month'],
-                        description: 'Periode waktu. today=hari ini, yesterday=kemarin, week=7 hari terakhir, month=bulan ini',
+                        description: 'Periode preset. Abaikan jika menggunakan start_date/end_date.',
+                    },
+                    start_date: {
+                        type: 'string',
+                        description: 'Tanggal mulai format YYYY-MM-DD (WIB). Gunakan untuk tanggal spesifik atau rentang bebas.',
+                    },
+                    end_date: {
+                        type: 'string',
+                        description: 'Tanggal akhir format YYYY-MM-DD (WIB). Jika tidak diisi, sama dengan start_date (satu hari).',
                     },
                     limit: {
                         type: 'number',
                         description: 'Jumlah produk yang ditampilkan (default 10, max 50)',
                     },
                 },
-                required: ['period'],
+                required: [],
             },
         },
     },
@@ -77,17 +96,25 @@ const TOOLS = [
         type: 'function',
         function: {
             name: 'get_revenue_summary',
-            description: 'Ambil ringkasan omzet, HPP, dan gross profit. Gunakan untuk pertanyaan tentang "omzet", "pendapatan", "profit", "keuntungan", "margin".',
+            description: 'Ambil ringkasan omzet, HPP, dan gross profit. Gunakan untuk pertanyaan tentang "omzet", "pendapatan", "profit", "keuntungan", "margin". Panggil dua kali dengan range berbeda untuk membandingkan periode.',
             parameters: {
                 type: 'object',
                 properties: {
                     period: {
                         type: 'string',
                         enum: ['today', 'yesterday', 'week', 'month'],
-                        description: 'Periode waktu',
+                        description: 'Periode preset. Abaikan jika menggunakan start_date/end_date.',
+                    },
+                    start_date: {
+                        type: 'string',
+                        description: 'Tanggal mulai format YYYY-MM-DD (WIB).',
+                    },
+                    end_date: {
+                        type: 'string',
+                        description: 'Tanggal akhir format YYYY-MM-DD (WIB). Jika tidak diisi, sama dengan start_date.',
                     },
                 },
-                required: ['period'],
+                required: [],
             },
         },
     },
@@ -124,10 +151,18 @@ const TOOLS = [
                     period: {
                         type: 'string',
                         enum: ['today', 'yesterday', 'week', 'month'],
-                        description: 'Periode waktu',
+                        description: 'Periode preset. Abaikan jika menggunakan start_date/end_date.',
+                    },
+                    start_date: {
+                        type: 'string',
+                        description: 'Tanggal mulai format YYYY-MM-DD (WIB).',
+                    },
+                    end_date: {
+                        type: 'string',
+                        description: 'Tanggal akhir format YYYY-MM-DD (WIB). Jika tidak diisi, sama dengan start_date.',
                     },
                 },
-                required: ['period'],
+                required: [],
             },
         },
     },
@@ -142,10 +177,18 @@ const TOOLS = [
                     period: {
                         type: 'string',
                         enum: ['today', 'yesterday', 'week', 'month'],
-                        description: 'Periode waktu',
+                        description: 'Periode preset. Abaikan jika menggunakan start_date/end_date.',
+                    },
+                    start_date: {
+                        type: 'string',
+                        description: 'Tanggal mulai format YYYY-MM-DD (WIB).',
+                    },
+                    end_date: {
+                        type: 'string',
+                        description: 'Tanggal akhir format YYYY-MM-DD (WIB). Jika tidak diisi, sama dengan start_date.',
                     },
                 },
-                required: ['period'],
+                required: [],
             },
         },
     },
@@ -159,19 +202,19 @@ async function executeTool(name: string, args: Record<string, any>): Promise<str
         let result: any
         switch (name) {
             case 'get_sales_ranking':
-                result = await getSalesRanking(args.period, args.limit)
+                result = await getSalesRanking(args.period, args.limit, args.start_date, args.end_date)
                 break
             case 'get_revenue_summary':
-                result = await getRevenueSummary(args.period)
+                result = await getRevenueSummary(args.period, args.start_date, args.end_date)
                 break
             case 'get_stock_levels':
                 result = await getStockLevels(args.filter, args.limit)
                 break
             case 'get_orders_summary':
-                result = await getOrdersSummary(args.period)
+                result = await getOrdersSummary(args.period, args.start_date, args.end_date)
                 break
             case 'get_platform_breakdown':
-                result = await getPlatformBreakdown(args.period)
+                result = await getPlatformBreakdown(args.period, args.start_date, args.end_date)
                 break
             default:
                 return JSON.stringify({ error: `Tool tidak dikenal: ${name}` })
