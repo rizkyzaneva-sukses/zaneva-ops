@@ -3,16 +3,18 @@
 import { AppLayout } from '@/components/layout/app-layout'
 import { useSearchParams, useRouter } from 'next/navigation'
 import { Suspense } from 'react'
-import { Wallet, BarChart3, Package, Database, TrendingUp, CreditCard } from 'lucide-react'
+import { Wallet, BarChart3, Package, Database, TrendingUp, CreditCard, Megaphone } from 'lucide-react'
 import { WalletTab }    from './_tabs/wallet'
 import { AsetTetapTab } from './_tabs/aset-tetap'
 import { ModalAwalTab } from './_tabs/modal-awal'
 import { PayoutTab }    from './_tabs/payout'
 import { UtangTab }     from './_tabs/utang-piutang'
 import { LaporanTab }   from './_tabs/laporan'
+import { IklanTab }     from './_tabs/iklan'
 
 const TABS = [
   { key: 'wallet',  label: 'Wallet & Ledger', icon: Wallet,     roles: ['OWNER','FINANCE'] },
+  { key: 'iklan',   label: 'Budget Iklan',    icon: Megaphone,  roles: ['OWNER','FINANCE'] },
   { key: 'aset',    label: 'Aset Tetap',      icon: Package,    roles: ['OWNER','FINANCE'] },
   { key: 'modal',   label: 'Modal Awal',      icon: Database,   roles: ['OWNER'] },
   { key: 'payout',  label: 'Payout',          icon: TrendingUp, roles: ['OWNER','FINANCE'] },
@@ -62,6 +64,7 @@ function FinanceContent() {
       </div>
 
       {activeTab === 'wallet'  && <WalletTab />}
+      {activeTab === 'iklan'   && <IklanTab />}
       {activeTab === 'aset'    && <AsetTetapTab />}
       {activeTab === 'modal'   && <ModalAwalTab />}
       {activeTab === 'payout'  && <PayoutTab />}
