@@ -377,8 +377,10 @@ model Wallet {
   createdAt   DateTime  @default(now()) @map("created_at")
   updatedAt   DateTime  @updatedAt @map("updated_at")
 
-  name        String    @unique
-  isActive    Boolean   @default(true) @map("is_active")
+  name            String    @unique
+  isActive        Boolean   @default(true)  @map("is_active")
+  isAdsBudget     Boolean   @default(false) @map("is_ads_budget")
+  linkedPlatform  String?                   @map("linked_platform")
 
   ledgerEntries      WalletLedger[]
   payouts            Payout[]

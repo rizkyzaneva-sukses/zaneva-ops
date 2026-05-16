@@ -204,34 +204,26 @@ export async function GET(request: NextRequest) {
           ORDER BY total_omzet DESC
         `,
 
-    // Marketing Costs (Ads & Sample)
+    // Ad Spend per Platform — dari wallet yang ditandai isAdsBudget=true
     gteDate && lteDate
-      ? prisma.$queryRaw<{ category: string; amount: bigint }[]>`
-          SELECT category, SUM(ABS(amount)) as amount
-          FROM wallet_ledger
-          WHERE trx_date >= ${gteDate} AND trx_date <= ${lteDate}
-            AND trx_type = 'EXPENSE'
-            AND category IS NOT NULL
-            AND (
-              category ILIKE '%iklan%'
-              OR category ILIKE '%ads%'
-              OR category ILIKE '%sample%'
-              OR category ILIKE '%ongkir sample%'
-            )
-          GROUP BY category
+      ? prisma.$queryRaw<{ linked_platform: string; ad_spend: bigint }[]>`
+          SELECT w.linked_platform, COALESCE(SUM(ABS(l.amount)), 0)::bigint AS ad_spend
+          FROM wallet_ledger l
+          JOIN wallets w ON w.id = l.wallet_id
+          WHERE w.is_ads_budget = true
+            AND w.linked_platform IS NOT NULL
+            AND l.trx_type = 'EXPENSE'
+            AND l.trx_date >= ${gteDate} AND l.trx_date <= ${lteDate}
+          GROUP BY w.linked_platform
         `
-      : prisma.$queryRaw<{ category: string; amount: bigint }[]>`
-          SELECT category, SUM(ABS(amount)) as amount
-          FROM wallet_ledger
-          WHERE trx_type = 'EXPENSE'
-            AND category IS NOT NULL
-            AND (
-              category ILIKE '%iklan%'
-              OR category ILIKE '%ads%'
-              OR category ILIKE '%sample%'
-              OR category ILIKE '%ongkir sample%'
-            )
-          GROUP BY category
+      : prisma.$queryRaw<{ linked_platform: string; ad_spend: bigint }[]>`
+          SELECT w.linked_platform, COALESCE(SUM(ABS(l.amount)), 0)::bigint AS ad_spend
+          FROM wallet_ledger l
+          JOIN wallets w ON w.id = l.wallet_id
+          WHERE w.is_ads_budget = true
+            AND w.linked_platform IS NOT NULL
+            AND l.trx_type = 'EXPENSE'
+          GROUP BY w.linked_platform
         `,
   ])
 
@@ -266,33 +258,32 @@ export async function GET(request: NextRequest) {
     },
     omzet: {
       byPlatform: (omzetByPlatform as any[]).map(p => {
-        // Calculate ROAS for this platform
-        const platformName = (p.platform || '').toLowerCase()
-        const adSpend = (marketingCosts as any[]).reduce((sum, cost) => {
-          const cat = (cost.category || '').toLowerCase()
-          // Only add costs that match this platform's name
-          if (cat.includes(platformName)) {
-            return sum + Number(cost.amount)
-          }
-          return sum
-        }, 0)
+        // Ad spend per platform — dari wallet is_ads_budget=true + linked_platform
+        const adsMap = new Map(
+          (marketingCosts as any[]).map((r: any) => [
+            (r.linked_platform || '').toLowerCase(),
+            Number(r.ad_spend),
+          ])
+        )
+        const platformKey = (p.platform || '').toLowerCase()
+        const adSpend = adsMap.get(platformKey) ?? 0
 
         const omzet = Number(p.total_omzet)
-        const hpp = Number(p.total_hpp)
+        const hpp   = Number(p.total_hpp)
 
         return {
           platform: p.platform,
           realOmzet: omzet,
-          hpp: hpp,
+          hpp,
           count: Number(p.cnt),
           grossProfit: omzet - hpp,
           adSpend,
           roas: adSpend > 0 ? (omzet / adSpend).toFixed(1) : '0',
         }
       }),
-      total: (omzetByPlatform as any[]).reduce((s, p) => s + Number(p.total_omzet), 0),
-      totalHpp: (omzetByPlatform as any[]).reduce((s, p) => s + Number(p.total_hpp), 0),
-      totalAdSpend: (marketingCosts as any[]).reduce((s, c) => s + Number(c.amount), 0),
+      total:        (omzetByPlatform as any[]).reduce((s, p) => s + Number(p.total_omzet), 0),
+      totalHpp:     (omzetByPlatform as any[]).reduce((s, p) => s + Number(p.total_hpp), 0),
+      totalAdSpend: (marketingCosts as any[]).reduce((s, r) => s + Number(r.ad_spend), 0),
     },
     aging,
     wallet: {

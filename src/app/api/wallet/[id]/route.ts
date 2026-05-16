@@ -10,13 +10,15 @@ export async function PUT(request: NextRequest, props: { params: Promise<{ id: s
     if (!['OWNER', 'FINANCE'].includes(session.userRole)) return apiError('Forbidden', 403)
 
   const body = await request.json()
-    const { name, isActive } = body
+    const { name, isActive, isAdsBudget, linkedPlatform } = body
 
   const wallet = await prisma.wallet.update({
         where: { id: params.id },
         data: {
-                ...(name && { name }),
-                ...(isActive !== undefined && { isActive }),
+                ...(name                 !== undefined && { name }),
+                ...(isActive             !== undefined && { isActive }),
+                ...(isAdsBudget          !== undefined && { isAdsBudget }),
+                ...(linkedPlatform       !== undefined && { linkedPlatform }),
         },
   })
 

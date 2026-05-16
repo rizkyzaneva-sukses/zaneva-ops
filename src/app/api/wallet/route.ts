@@ -37,9 +37,15 @@ export async function POST(request: NextRequest) {
   if (!['OWNER', 'FINANCE'].includes(session.userRole)) return apiError('Forbidden', 403)
 
   const body = await request.json()
-  const { name } = body
+  const { name, isAdsBudget, linkedPlatform } = body
   if (!name) return apiError('Nama wallet wajib diisi')
 
-  const wallet = await prisma.wallet.create({ data: { name } })
+  const wallet = await prisma.wallet.create({
+    data: {
+      name,
+      ...(isAdsBudget     !== undefined && { isAdsBudget }),
+      ...(linkedPlatform  !== undefined && { linkedPlatform }),
+    },
+  })
   return apiSuccess(wallet, 201)
 }
