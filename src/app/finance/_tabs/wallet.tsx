@@ -268,26 +268,37 @@ function AddTransactionModal({ onClose, wallets }: { onClose: () => void; wallet
   )
 }
 
+const PLATFORM_OPTIONS = ['Shopee', 'Tokopedia', 'TikTok Shop', 'Lazada', 'Blibli', 'Lainnya']
+
 function ManageWalletsModal({ onClose, wallets }: { onClose: () => void; wallets: any[] }) {
   const qc = useQueryClient(); const { toast } = useToast()
-  const [newWalletName, setNewWalletName] = useState('')
-  const [loading, setLoading] = useState(false)
+  const [newWalletName, setNewWalletName]   = useState('')
+  const [newIsAds, setNewIsAds]             = useState(false)
+  const [newPlatform, setNewPlatform]       = useState('')
+  const [loading, setLoading]               = useState(false)
+  const [savingId, setSavingId]             = useState<string|null>(null)
 
   const handleCreate = async () => {
     if (!newWalletName) return; setLoading(true)
     try {
-      const res = await fetch('/api/wallet', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({name:newWalletName}) })
+      const body: any = { name: newWalletName }
+      if (newIsAds) { body.isAdsBudget = true; body.linkedPlatform = newPlatform || null }
+      const res = await fetch('/api/wallet', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body) })
       if (!res.ok) throw new Error((await res.json()).error)
-      setNewWalletName(''); qc.invalidateQueries({ queryKey:['wallets'] }); toast({ title:'Wallet berhasil dibuat', type:'success' })
+      setNewWalletName(''); setNewIsAds(false); setNewPlatform('')
+      qc.invalidateQueries({ queryKey:['wallets'] }); toast({ title:'Wallet berhasil dibuat', type:'success' })
     } catch (err:any) { toast({ title:err.message||'Gagal', type:'error' })
     } finally { setLoading(false) }
   }
 
-  const toggleActive = async (id: string, current: boolean) => {
-    if (!confirm(`Yakin ${current?'menonaktifkan':'mengaktifkan'} wallet ini?`)) return; setLoading(true)
-    try { await fetch(`/api/wallet/${id}`, { method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify({isActive:!current}) }); qc.invalidateQueries({ queryKey:['wallets'] }); toast({ title:'Status diperbarui', type:'success' }) }
-    catch { toast({ title:'Gagal', type:'error' }) }
-    finally { setLoading(false) }
+  const updateWallet = async (id: string, data: Record<string, any>) => {
+    setSavingId(id)
+    try {
+      const res = await fetch(`/api/wallet/${id}`, { method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(data) })
+      if (!res.ok) throw new Error((await res.json()).error)
+      qc.invalidateQueries({ queryKey:['wallets'] }); toast({ title:'Wallet diperbarui', type:'success' })
+    } catch (err:any) { toast({ title:err.message||'Gagal', type:'error' })
+    } finally { setSavingId(null) }
   }
 
   return (
@@ -297,20 +308,66 @@ function ManageWalletsModal({ onClose, wallets }: { onClose: () => void; wallets
           <h2 className="text-base font-semibold text-white">Kelola Wallet</h2>
           <button onClick={onClose} className="text-zinc-500 hover:text-zinc-300"><X size={18}/></button>
         </div>
-        <div className="flex gap-2 mb-4">
-          <input value={newWalletName} onChange={e => setNewWalletName(e.target.value)} placeholder="Nama Wallet Baru"
-            className="flex-1 bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-200 focus:outline-none" />
-          <button onClick={handleCreate} disabled={loading||!newWalletName}
-            className="bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white rounded-lg px-4 py-2 text-sm font-medium">Tambah</button>
+
+        {/* Buat wallet baru */}
+        <div className="bg-zinc-800/50 border border-zinc-700/50 rounded-xl p-3 mb-4 space-y-2">
+          <p className="text-xs font-medium text-zinc-400">Wallet Baru</p>
+          <input value={newWalletName} onChange={e => setNewWalletName(e.target.value)} placeholder="Nama wallet"
+            className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-200 focus:outline-none" />
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input type="checkbox" checked={newIsAds} onChange={e => setNewIsAds(e.target.checked)}
+              className="accent-emerald-500 w-3.5 h-3.5" />
+            <span className="text-xs text-zinc-400">Ini adalah wallet budget iklan (Ads)</span>
+          </label>
+          {newIsAds && (
+            <select value={newPlatform} onChange={e => setNewPlatform(e.target.value)}
+              className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-200 focus:outline-none">
+              <option value="">Pilih platform...</option>
+              {PLATFORM_OPTIONS.map(p => <option key={p} value={p}>{p}</option>)}
+            </select>
+          )}
+          <button onClick={handleCreate} disabled={loading||!newWalletName||(newIsAds&&!newPlatform)}
+            className="w-full bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white rounded-lg px-4 py-2 text-sm font-medium">
+            Tambah Wallet
+          </button>
         </div>
-        <div className="max-h-60 overflow-y-auto space-y-2 pr-1 mb-4">
+
+        {/* Daftar wallet */}
+        <div className="max-h-72 overflow-y-auto space-y-2 pr-1 mb-4">
           {wallets.map(w => (
-            <div key={w.id} className="flex items-center justify-between bg-zinc-800/50 border border-zinc-700/50 p-3 rounded-lg">
-              <div><p className="text-sm font-medium text-white">{w.name}</p><p className="text-xs text-zinc-500">{w.isActive?'Aktif':'Nonaktif'}</p></div>
-              <button onClick={() => toggleActive(w.id, w.isActive)} disabled={loading}
-                className={`text-xs px-2 py-1 rounded ${w.isActive?'bg-red-900/30 text-red-400 hover:bg-red-900/50':'bg-emerald-900/30 text-emerald-400 hover:bg-emerald-900/50'}`}>
-                {w.isActive?'Nonaktifkan':'Aktifkan'}
-              </button>
+            <div key={w.id} className={`bg-zinc-800/50 border rounded-xl p-3 space-y-2 ${w.isAdsBudget ? 'border-emerald-800/60' : 'border-zinc-700/50'}`}>
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium text-white flex items-center gap-1.5">
+                    {w.name}
+                    {w.isAdsBudget && <span className="text-[10px] bg-emerald-900/50 text-emerald-400 border border-emerald-800 px-1.5 py-0.5 rounded">Ads · {w.linkedPlatform||'?'}</span>}
+                  </p>
+                  <p className="text-xs text-zinc-500">{w.isActive?'Aktif':'Nonaktif'}</p>
+                </div>
+                <button onClick={() => updateWallet(w.id, { isActive: !w.isActive })} disabled={!!savingId}
+                  className={`text-xs px-2 py-1 rounded ${w.isActive?'bg-red-900/30 text-red-400 hover:bg-red-900/50':'bg-emerald-900/30 text-emerald-400 hover:bg-emerald-900/50'}`}>
+                  {w.isActive?'Nonaktifkan':'Aktifkan'}
+                </button>
+              </div>
+
+              {/* Ads budget settings */}
+              <div className="flex items-center gap-3 border-t border-zinc-700/50 pt-2">
+                <label className="flex items-center gap-1.5 cursor-pointer">
+                  <input type="checkbox" checked={!!w.isAdsBudget}
+                    onChange={e => updateWallet(w.id, { isAdsBudget: e.target.checked, linkedPlatform: e.target.checked ? (w.linkedPlatform||null) : null })}
+                    className="accent-emerald-500 w-3.5 h-3.5" disabled={!!savingId} />
+                  <span className="text-xs text-zinc-400">Wallet Iklan (Ads)</span>
+                </label>
+                {w.isAdsBudget && (
+                  <select value={w.linkedPlatform||''} disabled={!!savingId}
+                    onChange={e => updateWallet(w.id, { linkedPlatform: e.target.value || null })}
+                    className="flex-1 bg-zinc-700 border border-zinc-600 rounded-lg px-2 py-1 text-xs text-zinc-200 focus:outline-none">
+                    <option value="">Pilih platform...</option>
+                    {PLATFORM_OPTIONS.map(p => <option key={p} value={p}>{p}</option>)}
+                  </select>
+                )}
+                {savingId === w.id && <span className="text-xs text-zinc-500">Menyimpan...</span>}
+              </div>
             </div>
           ))}
         </div>
