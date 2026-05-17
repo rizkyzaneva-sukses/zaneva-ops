@@ -1,0 +1,120 @@
+{
+  "name": "🤖 AI Asisten Laporan ZANEVA",
+  "nodes": [
+    {
+      "parameters": {
+        "updates": ["message"],
+        "additionalFields": {}
+      },
+      "id": "node-bot-001",
+      "name": "Telegram Trigger",
+      "type": "n8n-nodes-base.telegramTrigger",
+      "typeVersion": 1.1,
+      "position": [240, 300],
+      "webhookId": "zaneva-laporan-ai"
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "15D5h-Lce2xma5JJIWZcaoTr0vqhpk2G1C0X4Hn71IcY",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "LAPORAN HARIAN",
+          "mode": "name"
+        },
+        "returnAll": true,
+        "options": {}
+      },
+      "id": "node-bot-002",
+      "name": "Baca Sheet",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.4,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const rows = $input.all();\n\nconst telegramItem = $('Telegram Trigger').first().json;\nconst userMessage = (telegramItem.message && telegramItem.message.text) ? telegramItem.message.text : 'halo';\n\nconst BULAN_SHORT = {\n  'Jan':0,'Feb':1,'Mar':2,'Apr':3,'Mei':4,'May':4,\n  'Jun':5,'Jul':6,'Agu':7,'Aug':7,'Sep':8,\n  'Okt':9,'Oct':9,'Nov':10,'Des':11,'Dec':11\n};\n\nfunction parseDate(val) {\n  if (!val) return null;\n  const s = String(val).trim();\n  if (!s || s === '0') return null;\n  if (/^\\d+(\\.\\d+)?$/.test(s)) {\n    const serial = parseFloat(s);\n    if (serial < 1 || serial > 100000) return null; // filter angka tidak wajar\n    const base = new Date(Date.UTC(1899, 11, 30));\n    return new Date(base.getTime() + serial * 86400000);\n  }\n  const parts = s.split('-');\n  if (parts.length === 3) {\n    const d = parseInt(parts[0]);\n    const m = BULAN_SHORT[parts[1]];\n    const y = parseInt(parts[2]);\n    if (!isNaN(d) && m !== undefined && !isNaN(y) && y >= 2020 && y <= 2030) {\n      return new Date(Date.UTC(y, m, d));\n    }\n  }\n  return null;\n}\n\nfunction parseAngka(val) {\n  if (typeof val === 'number') return val;\n  if (!val) return 0;\n  return parseInt(String(val).replace(/Rp/g,'').replace(/\\./g,'').replace(/,/g,'')) || 0;\n}\n\nfunction parseRoas(val) {\n  if (typeof val === 'number') return val;\n  if (!val) return 0;\n  return parseFloat(String(val).replace(',','.')) || 0;\n}\n\nconst now = new Date();\nconst jakartaTime = new Date(now.getTime() + 7 * 60 * 60 * 1000);\nconst BULAN_PANJANG = ['Januari','Februari','Maret','April','Mei','Juni','Juli','Agustus','September','Oktober','November','Desember'];\nconst HARI_LIST = ['Minggu','Senin','Selasa','Rabu','Kamis','Jumat','Sabtu'];\nconst todayStr = String(jakartaTime.getUTCDate()).padStart(2,'0') + ' ' + BULAN_PANJANG[jakartaTime.getUTCMonth()] + ' ' + jakartaTime.getUTCFullYear();\nconst hariIni = HARI_LIST[jakartaTime.getUTCDay()];\n\nconst dayOfWeek = jakartaTime.getUTCDay();\nconst daysSinceMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1;\nconst seninMs = jakartaTime.getTime() - daysSinceMonday * 86400000;\nconst seninDate = new Date(seninMs);\nconst seninStr = String(seninDate.getUTCDate()).padStart(2,'0') + '-' + String(seninDate.getUTCMonth()+1).padStart(2,'0') + '-' + seninDate.getUTCFullYear();\n\nconst brands = ['Zaneva', 'Oberbe', 'Besyari', 'Muswim', 'Elyasr'];\nconst dataRows = [];\n\nfor (const item of rows) {\n  // === FILTER 1: Tanggal harus valid ===\n  const d = parseDate(item.json['TANGGAL']);\n  if (!d) continue;\n\n  // === FILTER 2: Minimal ada 1 brand dengan data (omset atau ads > 0) ===\n  let adaData = false;\n  for (const b of brands) {\n    const omset = parseAngka(item.json[b + '-Omset']);\n    const ads = parseAngka(item.json[b + '-Ads']);\n    if (omset > 0 || ads > 0) { adaData = true; break; }\n  }\n  if (!adaData) continue;\n\n  const tgl = String(d.getUTCDate()).padStart(2,'0') + '-' + String(d.getUTCMonth()+1).padStart(2,'0') + '-' + d.getUTCFullYear();\n  const hariNama = HARI_LIST[d.getUTCDay()];\n  const row = { tanggal: tgl, hari: hariNama };\n\n  for (const b of brands) {\n    const omset = parseAngka(item.json[b + '-Omset']);\n    const ads = parseAngka(item.json[b + '-Ads']);\n    const roas = parseRoas(item.json[b + '-ROAS']);\n    // Hanya masukkan brand yang ada datanya\n    if (omset > 0 || ads > 0) {\n      row[b] = { omset, ads, roas };\n    }\n  }\n  dataRows.push(row);\n}\n\nconst systemPrompt = 'Kamu adalah AI asisten laporan bisnis ZANEVA Group dengan 5 brand: Zaneva, Oberbe, Besyari, Muswim, Elyasr.\\n\\nHari ini: ' + hariIni + ', ' + todayStr + ' (WIB)\\nSenin minggu ini: ' + seninStr + '\\n\\nDATA PENJUALAN HARIAN (format JSON, tanggal DD-MM-YYYY, hanya baris yang ada datanya):\\n' + JSON.stringify(dataRows, null, 2) + '\\n\\nPenjelasan field per brand:\\n- omset: total penjualan bersih (Rupiah, angka mentah)\\n- ads: biaya iklan (Rupiah, angka mentah)\\n- roas: ROAS dari sheet (sudah dihitung, boleh pakai langsung)\\n- Brand tidak muncul di suatu hari = tidak ada data untuk hari itu\\n\\nKEMAMPUAN:\\n1. Omset saja — tanggal/range tertentu, satu atau semua brand\\n2. Performa lengkap — omset + ads + ROAS per brand\\n3. Range tanggal — total periode + rata-rata harian\\n4. Ranking brand — by ROAS atau by omset\\n5. Perbandingan antar periode (misal bulan ini vs bulan lalu)\\n6. Shortcut: hari ini, kemarin, minggu ini (Senin s/d hari ini)\\n\\nRUMUS KALKULASI RANGE:\\n- ROAS Periode = Total Omset range dibagi Total Ads range\\n- Rata-rata ROAS Harian = rata-rata dari nilai roas tiap hari\\n- Tampilkan KEDUANYA jika range lebih dari 1 hari\\n\\n=== FORMAT JAWABAN WAJIB ===\\n\\nLARANGAN KERAS:\\n- JANGAN pakai tabel markdown dengan simbol pipe untuk kolom\\n- JANGAN pakai garis pemisah tanda minus (----)\\n- Format yang tidak bisa dibaca di Telegram DILARANG\\n\\nFORMAT OMSET SAJA (1 hari):\\n[emoji] *Omset [Brand] - [Tgl]*\\nRp56.616.324\\n\\nFORMAT OMSET (range atau semua brand):\\n[emoji] *Omset [Brand/Semua Brand]*\\n[tgl-awal] - [tgl-akhir]\\n\\n[tgl] ([Hari])\\n[Brand]: RpXXX\\n\\n\\u2501\\u2501\\u2501\\u2501\\u2501\\u2501\\u2501\\u2501\\u2501\\u2501\\u2501\\n*Total: RpXXX*\\n\\nFORMAT PERFORMA LENGKAP (1 hari):\\n[emoji] *Performa [Brand/Semua] - [Tgl]*\\n\\n[Brand]\\n\\u2514 Omset: RpXXX\\n\\u2514 Ads: RpXXX\\n\\u2514 ROAS: X,XX\\n\\n\\u2501\\u2501\\u2501\\u2501\\u2501\\u2501\\u2501\\u2501\\u2501\\u2501\\u2501\\n*Total Omset: RpXXX*\\n*Total Ads: RpXXX*\\nROAS Periode: X,XX\\n\\nFORMAT PERFORMA LENGKAP (range tanggal):\\n[emoji] *Performa [Brand/Semua]*\\n[tgl-awal] - [tgl-akhir]\\n\\n*[tgl] ([Hari])*\\n[Brand]: Rp[omset] | Ads Rp[ads] | ROAS [x,xx]\\n\\n\\u2501\\u2501\\u2501\\u2501\\u2501\\u2501\\u2501\\u2501\\u2501\\u2501\\u2501\\n*Total: Rp[omset] | Ads Rp[ads]*\\nROAS Periode: X,XX | Rata-rata: X,XX\\n\\nFORMAT RANKING:\\n[emoji] *Ranking Brand - [periode]*\\n\\n\\ud83e\\udd47 Zaneva - ROAS X,XX | Omset RpXXX\\n\\ud83e\\udd48 Oberbe - ROAS X,XX | Omset RpXXX\\n\\ud83e\\udd49 Besyari - ROAS X,XX | Omset RpXXX\\n\\nATURAN TAMBAHAN:\\n- Format Rupiah: Rp56.616.324 (titik ribuan, tanpa desimal)\\n- Format ROAS: 6,31 (koma desimal, 2 angka)\\n- Bahasa Indonesia santai tapi profesional\\n- Langsung ke data, tidak perlu kalimat pembuka';\n\nconst body = JSON.stringify({\n  model: 'gpt-4o-mini',\n  max_tokens: 1000,\n  temperature: 0.3,\n  messages: [\n    { role: 'system', content: systemPrompt },\n    { role: 'user', content: userMessage }\n  ]\n});\n\nreturn [{ json: { body: body } }];"
+      },
+      "id": "node-bot-003",
+      "name": "Siapkan Prompt AI",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://ai.sumopod.com/v1/chat/completions",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer sk-dqhbu_J9-iaxhkf7WV0tKw"
+            },
+            {
+              "name": "content-type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ $json.body }}"
+      },
+      "id": "node-bot-004",
+      "name": "SumoPod API",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [900, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const response = $input.first().json;\n\nlet reply = '';\n\nif (response.choices && response.choices.length > 0 && response.choices[0].message) {\n  reply = response.choices[0].message.content || '';\n}\n\nif (!reply) {\n  if (response.error) {\n    reply = '⚠️ Error: ' + (response.error.message || JSON.stringify(response.error));\n  } else {\n    reply = '⚠️ Maaf, tidak bisa memproses pertanyaan. Coba lagi ya.';\n  }\n}\n\nreturn [{ json: { reply: reply } }];"
+      },
+      "id": "node-bot-005",
+      "name": "Parse Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1120, 300]
+    },
+    {
+      "parameters": {
+        "chatId": "565228988",
+        "text": "={{ $json.reply }}",
+        "additionalFields": {
+          "parse_mode": "Markdown"
+        }
+      },
+      "id": "node-bot-006",
+      "name": "Kirim Balasan",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [1340, 300]
+    }
+  ],
+  "connections": {
+    "Telegram Trigger": {
+      "main": [[{ "node": "Baca Sheet", "type": "main", "index": 0 }]]
+    },
+    "Baca Sheet": {
+      "main": [[{ "node": "Siapkan Prompt AI", "type": "main", "index": 0 }]]
+    },
+    "Siapkan Prompt AI": {
+      "main": [[{ "node": "SumoPod API", "type": "main", "index": 0 }]]
+    },
+    "SumoPod API": {
+      "main": [[{ "node": "Parse Response", "type": "main", "index": 0 }]]
+    },
+    "Parse Response": {
+      "main": [[{ "node": "Kirim Balasan", "type": "main", "index": 0 }]]
+    }
+  },
+  "active": false,
+  "settings": { "executionOrder": "v1" }
+}

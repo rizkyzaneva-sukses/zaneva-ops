@@ -1,0 +1,1302 @@
+'use client'
+
+import { AppLayout } from '@/components/layout/app-layout'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useState, useEffect, Suspense } from 'react'
+import { useSearchParams } from 'next/navigation'
+import { formatDate } from '@/lib/utils'
+import { useToast } from '@/components/ui/toaster'
+import { Shield, Download, Plus, Edit2, Loader2, Settings, Upload, CheckCircle2, AlertCircle, FileJson, Tag, X, ToggleLeft, ToggleRight, Pencil, Send, Bell, Eye, EyeOff } from 'lucide-react'
+
+const TABS = ['Users', 'Audit Log', 'Kategori', 'Backup Data', 'Pengaturan']
+const ROLES = ['OWNER', 'FINANCE', 'STAFF', 'EXTERNAL']
+
+function UserModal({ user, onClose }: { user?: any; onClose: () => void }) {
+  const qc = useQueryClient()
+  const { toast } = useToast()
+  const isEdit = !!user
+  const [form, setForm] = useState({
+    username: user?.username ?? '',
+    fullName: user?.fullName ?? '',
+    userRole: user?.userRole ?? 'STAFF',
+    isActive: user?.isActive ?? true,
+    password: '',
+  })
+  const [loading, setLoading] = useState(false)
+  const set = (k: string, v: any) => setForm(p => ({ ...p, [k]: v }))
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setLoading(true)
+    try {
+      const url = isEdit ? `/api/users/${user.id}` : '/api/users'
+      const body = isEdit
+        ? { fullName: form.fullName, userRole: form.userRole, isActive: form.isActive, newPassword: form.password || undefined }
+        : { username: form.username, password: form.password, fullName: form.fullName, userRole: form.userRole }
+      const res = await fetch(url, {
+        method: isEdit ? 'PUT' : 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.error)
+      toast({ title: isEdit ? 'User diperbarui' : 'User ditambahkan', type: 'success' })
+      qc.invalidateQueries({ queryKey: ['users'] })
+      onClose()
+    } catch (err: any) {
+      toast({ title: err.message || 'Gagal', type: 'error' })
+    } finally { setLoading(false) }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+      <div className="bg-zinc-900 border border-zinc-800 rounded-2xl w-full max-w-sm p-6">
+        <h2 className="text-base font-semibold text-white mb-4">{isEdit ? 'Edit User' : 'Tambah User'}</h2>
+        <form onSubmit={handleSubmit} className="space-y-3">
+          {!isEdit && (
+            <div>
+              <label className="block text-xs text-zinc-500 mb-1">Username *</label>
+              <input value={form.username} onChange={e => set('username', e.target.value)} required
+                className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-200 focus:outline-none" />
+            </div>
+          )}
+          <div>
+            <label className="block text-xs text-zinc-500 mb-1">Nama Lengkap</label>
+            <input value={form.fullName} onChange={e => set('fullName', e.target.value)}
+              className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-200 focus:outline-none" />
+          </div>
+          <div>
+            <label className="block text-xs text-zinc-500 mb-1">Role *</label>
+            <select value={form.userRole} onChange={e => set('userRole', e.target.value)}
+              className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-200 focus:outline-none">
+              {ROLES.map(r => <option key={r} value={r}>{r}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs text-zinc-500 mb-1">{isEdit ? 'Password Baru (kosongkan jika tidak diubah)' : 'Password *'}</label>
+            <input type="password" value={form.password} onChange={e => set('password', e.target.value)} required={!isEdit}
+              className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-200 focus:outline-none" />
+          </div>
+          {isEdit && (
+            <div className="flex items-center gap-2">
+              <input type="checkbox" id="ua" checked={form.isActive} onChange={e => set('isActive', e.target.checked)} className="rounded" />
+              <label htmlFor="ua" className="text-xs text-zinc-400">Aktif</label>
+            </div>
+          )}
+          <div className="flex gap-2 pt-2">
+            <button type="button" onClick={onClose} className="flex-1 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-lg py-2 text-sm">Batal</button>
+            <button type="submit" disabled={loading} className="flex-1 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white rounded-lg py-2 text-sm font-medium">
+              {loading ? 'Menyimpan...' : 'Simpan'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
+}
+
+function UsersTab() {
+  const [modal, setModal] = useState<any>(false)
+  const { data: users, isLoading } = useQuery({
+    queryKey: ['users'],
+    queryFn: () => fetch('/api/users').then(r => r.json()).then(d => d.data ?? []),
+  })
+
+  return (
+    <div>
+      {modal && (
+        <UserModal user={typeof modal === 'object' ? modal : undefined} onClose={() => setModal(false)} />
+      )}
+      <div className="flex justify-end mb-4">
+        <button onClick={() => setModal(true)} className="flex items-center gap-2 bg-emerald-700 hover:bg-emerald-600 text-white rounded-lg px-3 py-2 text-sm font-medium transition-colors">
+          <Plus size={14} /> Tambah User
+        </button>
+      </div>
+      <div className="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden">
+        <table className="data-table w-full">
+          <thead>
+            <tr><th>Username</th><th>Nama</th><th className="w-24">Role</th><th className="w-20">Status</th><th className="w-28">Dibuat</th><th className="w-12"></th></tr>
+          </thead>
+          <tbody>
+            {isLoading ? Array.from({ length: 3 }).map((_, i) => (
+              <tr key={i}>{Array.from({ length: 6 }).map((_, j) => <td key={j}><div className="h-4 bg-zinc-800 rounded animate-pulse" /></td>)}</tr>
+            )) : (users ?? []).map((u: any) => (
+              <tr key={u.id}>
+                <td><span className="font-mono text-sm text-zinc-200">{u.username}</span></td>
+                <td className="text-sm text-zinc-400">{u.fullName || '—'}</td>
+                <td><span className="badge-info">{u.userRole}</span></td>
+                <td>{u.isActive ? <span className="badge-success">Aktif</span> : <span className="badge-danger">Nonaktif</span>}</td>
+                <td className="text-xs text-zinc-500">{formatDate(u.createdAt)}</td>
+                <td>
+                  <button onClick={() => setModal(u)} className="p-1.5 rounded hover:bg-zinc-800 text-zinc-600 hover:text-zinc-300">
+                    <Edit2 size={12} />
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}
+
+function AuditTab() {
+  const [entityType, setEntityType] = useState('')
+  const [page, setPage] = useState(1)
+  const { data, isLoading } = useQuery({
+    queryKey: ['audit-logs', entityType, page],
+    queryFn: () => {
+      const p = new URLSearchParams({ entityType, page: String(page), limit: '50' })
+      return fetch(`/api/audit?${p}`).then(r => r.json()).then(d => d.data)
+    },
+  })
+  const logs = data?.logs ?? []
+  const total = data?.total ?? 0
+
+  return (
+    <div>
+      <div className="flex gap-3 mb-4">
+        <select value={entityType} onChange={e => setEntityType(e.target.value)}
+          className="bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-2 text-sm text-zinc-400 focus:outline-none">
+          <option value="">Semua Entity</option>
+          {['Order', 'InventoryScanBatch', 'StockOpnameBatch', 'PurchaseOrder', 'GoodsReceipt'].map(e => (
+            <option key={e} value={e}>{e}</option>
+          ))}
+        </select>
+        <p className="text-xs text-zinc-500 self-center">{total} log</p>
+      </div>
+      <div className="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden">
+        <table className="data-table w-full">
+          <thead>
+            <tr><th className="w-32">Waktu</th><th className="w-32">Entity</th><th className="w-20">Aksi</th><th>Detail</th><th className="w-24">Oleh</th></tr>
+          </thead>
+          <tbody>
+            {isLoading ? Array.from({ length: 5 }).map((_, i) => (
+              <tr key={i}>{Array.from({ length: 5 }).map((_, j) => <td key={j}><div className="h-4 bg-zinc-800 rounded animate-pulse" /></td>)}</tr>
+            )) : logs.length === 0 ? (
+              <tr><td colSpan={5} className="text-center py-8 text-zinc-600">Belum ada audit log</td></tr>
+            ) : logs.map((l: any) => (
+              <tr key={l.id}>
+                <td className="text-[10px] text-zinc-500">{formatDate(l.createdAt, 'datetime')}</td>
+                <td className="text-xs text-zinc-400">{l.entityType}</td>
+                <td><span className="badge-muted text-[10px]">{l.action}</span></td>
+                <td className="text-[10px] text-zinc-600 max-w-xs truncate">{l.note || l.entityId}</td>
+                <td className="text-xs text-zinc-400">{l.performedBy}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}
+
+interface ImportResult {
+  inserted: number
+  updated: number
+  skipped: number
+  total: number
+  summary?: Record<string, { inserted: number; updated: number; skipped: number; total: number }>
+}
+
+function BackupEntityRow({ entityKey, label, desc, canImport }: {
+  entityKey: string
+  label: string
+  desc: string
+  canImport?: boolean
+}) {
+  const { toast } = useToast()
+  const [exportLoading, setExportLoading] = useState(false)
+  const [importLoading, setImportLoading] = useState(false)
+  const [importResult, setImportResult] = useState<ImportResult | null>(null)
+  const [previewCount, setPreviewCount] = useState<number | null>(null)
+  const [pendingData, setPendingData] = useState<any>(null)
+
+  const handleExport = async () => {
+    setExportLoading(true)
+    try {
+      const res = await fetch(`/api/backup?entity=${entityKey}`)
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.error)
+      const payload = entityKey === 'all' ? json.data : json.data
+      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `elyasr-backup-${entityKey}-${new Date().toISOString().slice(0, 10)}.json`
+      a.click()
+      URL.revokeObjectURL(url)
+      toast({ title: `Export "${label}" berhasil`, type: 'success' })
+    } catch (err: any) {
+      toast({ title: err.message || 'Gagal export', type: 'error' })
+    } finally { setExportLoading(false) }
+  }
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setImportResult(null)
+    try {
+      const text = await file.text()
+      const parsed = JSON.parse(text)
+
+      if (entityKey === 'all') {
+        // Format export semua: { exportedAt, exportedBy, data: { products: [], orders: [], ... } }
+        const dataObj = (parsed?.data && typeof parsed.data === 'object' && !Array.isArray(parsed.data))
+          ? parsed.data
+          : (typeof parsed === 'object' && !Array.isArray(parsed) && !parsed.exportedAt ? parsed : null)
+        if (!dataObj) throw new Error('Format tidak valid. Upload file hasil "Export Semua Data" dari sistem ini.')
+        const KEYS = ['products', 'orders', 'vendors', 'wallet_ledger', 'inventory_ledger']
+        const total = KEYS.reduce((s, k) => s + (Array.isArray(dataObj[k]) ? dataObj[k].length : 0), 0)
+        if (total === 0) throw new Error('Tidak ada data yang bisa diimport dalam file ini.')
+        setPreviewCount(total)
+        setPendingData(dataObj)
+        return
+      }
+
+      // Entity tunggal: array langsung atau {data: [...]}
+      let rows: any[]
+      if (Array.isArray(parsed)) {
+        rows = parsed
+      } else if (Array.isArray(parsed.data)) {
+        rows = parsed.data
+      } else if (parsed.data && typeof parsed.data === 'object' && Array.isArray(parsed.data[entityKey])) {
+        rows = parsed.data[entityKey]
+      } else {
+        throw new Error('Format JSON tidak dikenali. Harap gunakan file export dari sistem ini.')
+      }
+      setPreviewCount(rows.length)
+      setPendingData(rows)
+    } catch (err: any) {
+      toast({ title: err.message || 'File JSON tidak valid', type: 'error' })
+      e.target.value = ''
+    }
+  }
+
+  const handleImport = async () => {
+    if (!pendingData) return
+    setImportLoading(true)
+    setImportResult(null)
+    try {
+      const res = await fetch('/api/backup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ entity: entityKey, data: pendingData }),
+      })
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.error)
+      setImportResult(json.data)
+      setPendingData(null)
+      setPreviewCount(null)
+      toast({ title: `Import "${label}" berhasil`, type: 'success' })
+    } catch (err: any) {
+      toast({ title: err.message || 'Gagal import', type: 'error' })
+    } finally { setImportLoading(false) }
+  }
+
+  const handleCancelImport = () => {
+    setPendingData(null)
+    setPreviewCount(null)
+    setImportResult(null)
+  }
+
+  return (
+    <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-4 flex flex-col gap-3">
+      {/* Header */}
+      <div className="flex items-start justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <FileJson size={15} className="text-emerald-400 shrink-0 mt-0.5" />
+          <div>
+            <p className="text-sm font-medium text-zinc-200">{label}</p>
+            <p className="text-xs text-zinc-500">{desc}</p>
+          </div>
+        </div>
+        <button
+          onClick={handleExport}
+          disabled={exportLoading}
+          className="flex items-center gap-1.5 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-zinc-300 rounded-lg px-3 py-1.5 text-xs transition-colors shrink-0 disabled:opacity-50"
+        >
+          {exportLoading ? <Loader2 size={11} className="animate-spin" /> : <Download size={11} />}
+          Export
+        </button>
+      </div>
+
+      {/* Import area - only for supported entities */}
+      {canImport && (
+        <div className="border-t border-zinc-800 pt-3">
+          {!pendingData && !importResult && (
+            <label className="flex items-center gap-2 cursor-pointer group">
+              <div className="flex items-center gap-2 bg-zinc-800 hover:bg-emerald-900/40 border border-zinc-700 hover:border-emerald-700 rounded-lg px-3 py-1.5 text-xs text-zinc-400 group-hover:text-emerald-300 transition-all">
+                <Upload size={11} />
+                <span>Import JSON</span>
+              </div>
+              <input
+                type="file"
+                accept=".json,application/json"
+                className="hidden"
+                onChange={handleFileChange}
+              />
+            </label>
+          )}
+
+          {pendingData && (
+            <div className="flex items-center gap-2 flex-wrap">
+              <div className="flex items-center gap-1.5 bg-amber-900/20 border border-amber-700/40 rounded-lg px-3 py-1.5 text-xs text-amber-300">
+                <AlertCircle size={11} />
+                {entityKey === 'all'
+                  ? `${previewCount?.toLocaleString('id-ID')} total records (5 entity) siap diimport`
+                  : `${previewCount?.toLocaleString('id-ID')} baris siap diimport`
+                }
+              </div>
+              <button
+                onClick={handleImport}
+                disabled={importLoading}
+                className="flex items-center gap-1.5 bg-emerald-700 hover:bg-emerald-600 disabled:opacity-50 text-white rounded-lg px-3 py-1.5 text-xs font-medium transition-colors"
+              >
+                {importLoading ? <Loader2 size={11} className="animate-spin" /> : <Upload size={11} />}
+                {importLoading ? 'Mengimport...' : 'Konfirmasi Import'}
+              </button>
+              <button
+                onClick={handleCancelImport}
+                className="text-xs text-zinc-500 hover:text-zinc-300 transition-colors px-2 py-1.5"
+              >
+                Batal
+              </button>
+            </div>
+          )}
+
+          {importResult && (
+            <div className="flex flex-col gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
+                <div className="flex items-center gap-1.5 bg-emerald-900/20 border border-emerald-700/40 rounded-lg px-3 py-1.5 text-xs text-emerald-300">
+                  <CheckCircle2 size={11} />
+                  +{importResult.inserted} baru · ~{importResult.updated} update · {importResult.skipped} skip
+                </div>
+                <button onClick={handleCancelImport} className="text-xs text-zinc-500 hover:text-zinc-300 transition-colors px-2 py-1.5">Reset</button>
+              </div>
+              {importResult.summary && (
+                <div className="flex flex-wrap gap-1">
+                  {Object.entries(importResult.summary).map(([ent, s]) => s.total > 0 && (
+                    <span key={ent} className="text-[10px] bg-zinc-800 border border-zinc-700 rounded px-2 py-0.5 text-zinc-400">
+                      {ent}: +{s.inserted} ~{s.updated} /{s.skipped}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function BackupTab() {
+  const entities: { key: string; label: string; desc: string; canImport?: boolean }[] = [
+    { key: 'all', label: 'Semua Data', desc: 'Export & Import lengkap semua entity sekaligus', canImport: true },
+    { key: 'products', label: 'Master Produk', desc: 'Data produk & SKU (upsert by SKU)', canImport: true },
+    { key: 'orders', label: 'Orders', desc: 'Semua pesanan (upsert by orderNo)', canImport: true },
+    { key: 'vendors', label: 'Vendors', desc: 'Data vendor (upsert by vendorCode)', canImport: true },
+    { key: 'wallet_ledger', label: 'Wallet Ledger', desc: 'Transaksi keuangan (insert only)', canImport: true },
+    { key: 'inventory_ledger', label: 'Inventory Ledger', desc: 'Riwayat stok masuk/keluar (insert only)', canImport: true },
+    { key: 'purchase_orders', label: 'Purchase Orders', desc: 'Semua PO & items (export only)' },
+    { key: 'payouts', label: 'Payouts', desc: 'Data payout marketplace (export only)' },
+    { key: 'utangs', label: 'Utang & Piutang', desc: 'Catatan utang & piutang (export only)' },
+  ]
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center gap-2 bg-blue-900/20 border border-blue-700/40 rounded-lg px-4 py-3">
+        <AlertCircle size={14} className="text-blue-400 shrink-0" />
+        <p className="text-xs text-blue-300">
+          <strong>Import Semua Data</strong> — upload file hasil Export Semua Data untuk restore semua entity sekaligus.
+          Bisa juga import per-entity satu per satu di bawah.
+          <span className="text-blue-400"> Produk, Orders & Vendors: upsert (update jika ada). Ledger: insert only (skip duplikat).</span>
+        </p>
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        {entities.map(e => (
+          <BackupEntityRow
+            key={e.key}
+            entityKey={e.key}
+            label={e.label}
+            desc={e.desc}
+            canImport={e.canImport}
+          />
+        ))}
+      </div>
+    </div>
+  )
+}
+
+// ── Kategori Transaksi Tab ────────────────────────────────────────────────────
+const DEFAULT_GROUPS = ['Beban Pokok Penjualan', 'Beban Operasional', 'Beban Lain-lain', 'Non-Beban / Aset']
+
+function KategoriModal({ cat, onClose }: { cat?: any; onClose: () => void }) {
+  const qc = useQueryClient()
+  const { toast } = useToast()
+  const isEdit = !!cat
+  const [form, setForm] = useState({
+    name: cat?.name ?? '',
+    group: cat?.group ?? 'Beban Operasional',
+    customGroup: '',
+    isBeban: cat?.isBeban ?? true,
+  })
+  const [loading, setLoading] = useState(false)
+  const set = (k: string, v: any) => setForm(p => ({ ...p, [k]: v }))
+  const useCustomGroup = form.group === '__custom__'
+  const finalGroup = useCustomGroup ? form.customGroup : form.group
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!form.name.trim() || !finalGroup.trim()) return
+    setLoading(true)
+    try {
+      const res = await fetch('/api/finance/categories', {
+        method: isEdit ? 'PUT' : 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(isEdit
+          ? { id: cat.id, name: form.name, group: finalGroup, isBeban: form.isBeban }
+          : { name: form.name, group: finalGroup, isBeban: form.isBeban }
+        ),
+      })
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.error)
+      toast({ title: isEdit ? 'Kategori diperbarui' : 'Kategori ditambahkan', type: 'success' })
+      qc.invalidateQueries({ queryKey: ['owner-categories'] })
+      qc.invalidateQueries({ queryKey: ['expense-categories'] })
+      onClose()
+    } catch (err: any) {
+      toast({ title: err.message || 'Gagal', type: 'error' })
+    } finally { setLoading(false) }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+      <div className="bg-zinc-900 border border-zinc-800 rounded-2xl w-full max-w-sm p-6 shadow-2xl">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-sm font-semibold text-white">{isEdit ? 'Edit Kategori' : 'Tambah Kategori'}</h2>
+          <button onClick={onClose} className="text-zinc-500 hover:text-zinc-300"><X size={16} /></button>
+        </div>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label className="block text-xs text-zinc-500 mb-1">Nama Kategori *</label>
+            <input value={form.name} onChange={e => set('name', e.target.value)} required
+              disabled={isEdit && cat?.isSystem}
+              placeholder="cth: Beban Sewa Gudang"
+              className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-200 focus:outline-none disabled:opacity-50" />
+          </div>
+          <div>
+            <label className="block text-xs text-zinc-500 mb-1">Group</label>
+            <select value={form.group} onChange={e => set('group', e.target.value)}
+              className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-200 focus:outline-none">
+              {DEFAULT_GROUPS.map(g => <option key={g} value={g}>{g}</option>)}
+              <option value="__custom__">+ Group Baru...</option>
+            </select>
+            {useCustomGroup && (
+              <input value={form.customGroup} onChange={e => set('customGroup', e.target.value)} required
+                placeholder="Nama group baru" autoFocus
+                className="w-full mt-2 bg-zinc-800 border border-emerald-600 rounded-lg px-3 py-2 text-sm text-zinc-200 focus:outline-none" />
+            )}
+          </div>
+          <div>
+            <label className="block text-xs text-zinc-500 mb-2">Pengaruh ke Laporan L/R</label>
+            <div className="flex gap-2">
+              <button type="button" onClick={() => set('isBeban', true)}
+                className={`flex-1 rounded-lg px-3 py-2.5 text-xs font-medium border transition-all ${form.isBeban ? 'bg-red-900/40 border-red-600 text-red-300' : 'bg-zinc-800 border-zinc-700 text-zinc-500 hover:border-zinc-600'}`}>
+                📊 Masuk L/R (Beban)
+              </button>
+              <button type="button" onClick={() => set('isBeban', false)}
+                className={`flex-1 rounded-lg px-3 py-2.5 text-xs font-medium border transition-all ${!form.isBeban ? 'bg-blue-900/40 border-blue-600 text-blue-300' : 'bg-zinc-800 border-zinc-700 text-zinc-500 hover:border-zinc-600'}`}>
+                📦 Tidak masuk L/R
+              </button>
+            </div>
+            <p className="text-[10px] text-zinc-600 mt-1.5">
+              {form.isBeban ? 'Transaksi ini akan muncul sebagai beban di laporan Laba/Rugi.' : 'Transaksi ini tidak mempengaruhi L/R (misal: beli perlengkapan, aset kecil).'}
+            </p>
+          </div>
+          <div className="flex gap-2 pt-1">
+            <button type="button" onClick={onClose} className="flex-1 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-lg py-2 text-sm">Batal</button>
+            <button type="submit" disabled={loading || (!isEdit && !form.name)} className="flex-1 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white rounded-lg py-2 text-sm font-medium">
+              {loading ? 'Menyimpan...' : 'Simpan'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
+}
+
+function KategoriTab() {
+  const qc = useQueryClient()
+  const { toast } = useToast()
+  const [modal, setModal] = useState<any>(null) // false | true (add) | object (edit)
+  const [filterGroup, setFilterGroup] = useState('')
+  const [filterBeban, setFilterBeban] = useState<'all' | 'beban' | 'non'>('all')
+
+  const { data, isLoading } = useQuery({
+    queryKey: ['owner-categories'],
+    queryFn: () => fetch('/api/finance/categories?all=true').then(r => r.json()).then(d => d.data?.categories ?? []),
+  })
+  const categories: any[] = data ?? []
+  const groups = [...new Set(categories.map((c: any) => c.group))].sort()
+
+  const filtered = categories.filter((c: any) => {
+    if (filterGroup && c.group !== filterGroup) return false
+    if (filterBeban === 'beban' && !c.isBeban) return false
+    if (filterBeban === 'non' && c.isBeban) return false
+    return true
+  })
+
+  const toggleActive = async (cat: any) => {
+    try {
+      const res = await fetch('/api/finance/categories', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: cat.id, isActive: !cat.isActive }),
+      })
+      if (!res.ok) throw new Error((await res.json()).error)
+      toast({ title: `Kategori ${cat.isActive ? 'dinonaktifkan' : 'diaktifkan'}`, type: 'success' })
+      qc.invalidateQueries({ queryKey: ['owner-categories'] })
+      qc.invalidateQueries({ queryKey: ['expense-categories'] })
+    } catch (err: any) {
+      toast({ title: err.message || 'Gagal', type: 'error' })
+    }
+  }
+
+  return (
+    <div>
+      {modal && <KategoriModal cat={typeof modal === 'object' ? modal : undefined} onClose={() => setModal(null)} />}
+
+      <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
+        <div className="flex gap-2 flex-wrap">
+          <select value={filterGroup} onChange={e => setFilterGroup(e.target.value)}
+            className="bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-2 text-sm text-zinc-400 focus:outline-none">
+            <option value="">Semua Group</option>
+            {groups.map(g => <option key={g} value={g}>{g}</option>)}
+          </select>
+          <select value={filterBeban} onChange={e => setFilterBeban(e.target.value as any)}
+            className="bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-2 text-sm text-zinc-400 focus:outline-none">
+            <option value="all">Semua Tipe</option>
+            <option value="beban">Masuk L/R (Beban)</option>
+            <option value="non">Tidak masuk L/R</option>
+          </select>
+        </div>
+        <button onClick={() => setModal(true)}
+          className="flex items-center gap-2 bg-emerald-700 hover:bg-emerald-600 text-white rounded-lg px-3 py-2 text-sm font-medium transition-colors">
+          <Plus size={14} /> Tambah Kategori
+        </button>
+      </div>
+
+      <div className="bg-amber-900/20 border border-amber-700/40 rounded-lg px-4 py-3 mb-4">
+        <p className="text-xs text-amber-300">
+          <strong>Masuk L/R</strong> = beban yang tampil di laporan Laba/Rugi (cth: Beban Sewa, Gaji, Listrik).
+          <strong className="ml-2">Tidak masuk L/R</strong> = pengeluaran yang tidak mempengaruhi L/R (cth: Beli Perlengkapan, Inventaris Kecil).
+        </p>
+      </div>
+
+      <div className="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden">
+        <table className="data-table w-full">
+          <thead>
+            <tr>
+              <th>Nama Kategori</th>
+              <th className="w-40">Group</th>
+              <th className="w-32">Pengaruh L/R</th>
+              <th className="w-20">Status</th>
+              <th className="w-24">Tipe</th>
+              <th className="w-16"></th>
+            </tr>
+          </thead>
+          <tbody>
+            {isLoading ? Array.from({ length: 5 }).map((_, i) => (
+              <tr key={i}>{Array.from({ length: 6 }).map((_, j) => <td key={j}><div className="h-4 bg-zinc-800 rounded animate-pulse" /></td>)}</tr>
+            )) : filtered.length === 0 ? (
+              <tr><td colSpan={6} className="text-center py-8 text-zinc-600">Tidak ada kategori</td></tr>
+            ) : filtered.map((c: any) => (
+              <tr key={c.id}>
+                <td className="text-sm text-zinc-200 font-medium">{c.name}</td>
+                <td className="text-xs text-zinc-400">{c.group}</td>
+                <td>
+                  {c.isBeban
+                    ? <span className="badge-danger">📊 Masuk L/R</span>
+                    : <span className="badge-info">📦 Non-Beban</span>}
+                </td>
+                <td>
+                  {c.isActive
+                    ? <span className="badge-success">Aktif</span>
+                    : <span className="badge-muted">Nonaktif</span>}
+                </td>
+                <td>
+                  {c.isSystem
+                    ? <span className="text-[10px] text-zinc-600 italic">System</span>
+                    : <span className="text-[10px] text-zinc-500">Custom</span>}
+                </td>
+                <td>
+                  <div className="flex items-center gap-1">
+                    {!c.isSystem && (
+                      <button onClick={() => setModal(c)}
+                        className="p-1.5 rounded hover:bg-zinc-800 text-zinc-600 hover:text-zinc-300" title="Edit">
+                        <Pencil size={11} />
+                      </button>
+                    )}
+                    <button onClick={() => toggleActive(c)}
+                      className={`p-1.5 rounded text-xs transition-colors ${c.isActive ? 'hover:bg-red-900/30 text-zinc-600 hover:text-red-400' : 'hover:bg-emerald-900/30 text-zinc-600 hover:text-emerald-400'
+                        }`} title={c.isActive ? 'Nonaktifkan' : 'Aktifkan'}>
+                      {c.isActive ? <ToggleRight size={14} /> : <ToggleLeft size={14} />}
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <p className="text-xs text-zinc-600 mt-2">{filtered.length} kategori ditampilkan dari {categories.length} total</p>
+    </div>
+  )
+}
+
+
+function TelegramSection() {
+  const { toast } = useToast()
+  const [botToken, setBotToken] = useState('')
+  const [chatId, setChatId] = useState('')
+  const [showToken, setShowToken] = useState(false)
+  const [fetching, setFetching] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [testing, setTesting] = useState(false)
+  const [sending, setSending] = useState(false)
+  const [autoEnabled, setAutoEnabled] = useState(true)
+  const [lastSent, setLastSent] = useState<string | null>(null)
+  const [togglingAuto, setTogglingAuto] = useState(false)
+  // Schedule picker
+  const [schedHour, setSchedHour] = useState(17)
+  const [schedMinute, setSchedMinute] = useState(30)
+  const [savingSched, setSavingSched] = useState(false)
+  // Recipients
+  type Recipient = { id: string; name: string; chatId: string; threadId?: string | null; isActive: boolean }
+  const [recipients, setRecipients] = useState<Recipient[]>([])
+  const [loadingRecipients, setLoadingRecipients] = useState(true)
+  const [showAddForm, setShowAddForm] = useState(false)
+  const [newName, setNewName] = useState('')
+  const [newChatId, setNewChatId] = useState('')
+  const [newThreadId, setNewThreadId] = useState('')
+  const [addingRecipient, setAddingRecipient] = useState(false)
+  const [testingId, setTestingId] = useState<string | null>(null)
+
+  useEffect(() => {
+    // Load token + chat ID
+    fetch('/api/settings')
+      .then(r => r.json())
+      .then(d => {
+        if (d.success) {
+          setBotToken(d.data?.telegram_bot_token ?? '')
+          setChatId(d.data?.telegram_chat_id ?? '')
+          setAutoEnabled(d.data?.auto_report_enabled !== 'false')
+          setLastSent(d.data?.last_auto_report_sent ?? null)
+        }
+      })
+      .finally(() => setFetching(false))
+    // Load schedule dari DB
+    fetch('/api/settings/report-schedule')
+      .then(r => r.json())
+      .then(d => { if (d.success) { setSchedHour(d.data.hour); setSchedMinute(d.data.minute) } })
+      .catch(() => {})
+    // Load recipients
+    fetch('/api/settings/telegram-recipients')
+      .then(r => r.json())
+      .then(d => { if (d.success) setRecipients(d.data) })
+      .finally(() => setLoadingRecipients(false))
+  }, [])
+
+  const loadRecipients = () => {
+    fetch('/api/settings/telegram-recipients')
+      .then(r => r.json())
+      .then(d => { if (d.success) setRecipients(d.data) })
+  }
+
+  const handleAddRecipient = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setAddingRecipient(true)
+    try {
+      const res = await fetch('/api/settings/telegram-recipients', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: newName, chatId: newChatId, threadId: newThreadId || null }),
+      })
+      const json = await res.json()
+      if (!json.success) throw new Error(json.error)
+      setNewName(''); setNewChatId(''); setNewThreadId(''); setShowAddForm(false)
+      loadRecipients()
+      toast({ title: `✅ ${newName} ditambahkan sebagai penerima laporan`, type: 'success' })
+    } catch (err: any) {
+      toast({ title: err.message || 'Gagal menambah recipient', type: 'error' })
+    } finally { setAddingRecipient(false) }
+  }
+
+  const handleToggleRecipient = async (id: string, current: boolean) => {
+    const res = await fetch(`/api/settings/telegram-recipients/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ isActive: !current }),
+    })
+    const json = await res.json()
+    if (json.success) loadRecipients()
+  }
+
+  const handleDeleteRecipient = async (id: string, name: string) => {
+    if (!confirm(`Hapus "${name}" dari daftar penerima?`)) return
+    await fetch(`/api/settings/telegram-recipients/${id}`, { method: 'DELETE' })
+    loadRecipients()
+    toast({ title: `🗑️ ${name} dihapus`, type: 'success' })
+  }
+
+  const handleTestRecipient = async (id: string, name: string) => {
+    setTestingId(id)
+    try {
+      const res = await fetch(`/api/settings/telegram-recipients/${id}?action=test`, { method: 'POST' })
+      const json = await res.json()
+      if (!json.success) throw new Error(json.error)
+      toast({ title: `✅ Test terkirim ke ${name}!`, type: 'success' })
+    } catch (err: any) {
+      toast({ title: `❌ ${err.message}`, type: 'error' })
+    } finally { setTestingId(null) }
+  }
+
+  const handleToggleAuto = async () => {
+    setTogglingAuto(true)
+    const newValue = !autoEnabled
+    try {
+      // Update AppSetting
+      const r1 = await fetch('/api/settings', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key: 'auto_report_enabled', value: String(newValue) }),
+      })
+      const j1 = await r1.json()
+      if (!j1.success) throw new Error(j1.error)
+      // Update ReportSchedule.isActive
+      await fetch('/api/settings/report-schedule', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ isActive: newValue }),
+      })
+      setAutoEnabled(newValue)
+      const timeLabel = `${String(schedHour).padStart(2,'0')}:${String(schedMinute).padStart(2,'0')}`
+      toast({ title: newValue ? `⏰ Auto report ${timeLabel} WIB diaktifkan!` : '⏸️ Auto report dinonaktifkan', type: 'success' })
+    } catch (err: any) {
+      toast({ title: err.message || 'Gagal mengubah setting', type: 'error' })
+    } finally { setTogglingAuto(false) }
+  }
+
+  const handleSaveSchedule = async () => {
+    setSavingSched(true)
+    try {
+      const res = await fetch('/api/settings/report-schedule', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ hour: schedHour, minute: schedMinute }),
+      })
+      const json = await res.json()
+      if (!json.success) throw new Error(json.error)
+      toast({ title: `✅ Jadwal disimpan: ${String(schedHour).padStart(2,'0')}:${String(schedMinute).padStart(2,'0')} WIB — langsung aktif!`, type: 'success' })
+    } catch (err: any) {
+      toast({ title: err.message || 'Gagal simpan jadwal', type: 'error' })
+    } finally { setSavingSched(false) }
+  }
+
+  const handleSave = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setSaving(true)
+    try {
+      const results = await Promise.all([
+        fetch('/api/settings', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ key: 'telegram_bot_token', value: botToken.trim() }),
+        }),
+        fetch('/api/settings', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ key: 'telegram_chat_id', value: chatId.trim() }),
+        }),
+      ])
+      const jsons = await Promise.all(results.map(r => r.json()))
+      const failed = jsons.find(j => !j.success)
+      if (failed) throw new Error(failed.error)
+      toast({ title: '✅ Konfigurasi Telegram disimpan!', type: 'success' })
+    } catch (err: any) {
+      toast({ title: err.message || 'Gagal menyimpan', type: 'error' })
+    } finally { setSaving(false) }
+  }
+
+  const handleTest = async () => {
+    if (!botToken || !chatId) {
+      toast({ title: 'Simpan Bot Token dan Chat ID dulu!', type: 'error' })
+      return
+    }
+    setTesting(true)
+    try {
+      const res = await fetch('/api/report/test-telegram', { method: 'POST' })
+      const json = await res.json()
+      if (!json.success) throw new Error(json.error)
+      toast({ title: '✅ Pesan test berhasil dikirim ke Telegram!', type: 'success' })
+    } catch (err: any) {
+      toast({ title: `❌ ${err.message || 'Gagal kirim test'}`, type: 'error' })
+    } finally { setTesting(false) }
+  }
+
+  const handleSendNow = async () => {
+    if (!botToken || !chatId) {
+      toast({ title: 'Simpan konfigurasi Telegram dulu!', type: 'error' })
+      return
+    }
+    setSending(true)
+    try {
+      const res = await fetch('/api/report/send-telegram', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      })
+      const json = await res.json()
+      if (!json.success) throw new Error(json.error)
+      toast({ title: '📊 Laporan harian berhasil dikirim ke Telegram!', type: 'success' })
+    } catch (err: any) {
+      toast({ title: `❌ ${err.message || 'Gagal kirim laporan'}`, type: 'error' })
+    } finally { setSending(false) }
+  }
+
+  if (fetching) return (
+    <div className="flex items-center gap-2 text-zinc-500 text-sm py-4">
+      <Loader2 size={14} className="animate-spin" /> Memuat konfigurasi...
+    </div>
+  )
+
+  return (
+    <div className="mt-8 pt-8 border-t border-zinc-800">
+      <div className="flex items-center gap-2 mb-2">
+        <Bell size={16} className="text-sky-400" />
+        <h2 className="text-sm font-semibold text-zinc-200">Notifikasi Telegram</h2>
+        <span className="text-[10px] bg-sky-900/40 border border-sky-700/50 text-sky-300 rounded px-2 py-0.5">Tanpa n8n</span>
+      </div>
+      <p className="text-xs text-zinc-500 mb-5">
+        Laporan harian otomatis langsung dari aplikasi ke Telegram kamu — tidak perlu n8n lagi.
+      </p>
+
+      {/* How to get Chat ID */}
+      <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-4 mb-5 text-xs text-zinc-400 space-y-1.5">
+        <p className="text-zinc-300 font-medium mb-2">📋 Cara dapat Chat ID &amp; Bot Token:</p>
+        <p>1. Buat bot baru: chat ke <span className="text-sky-400 font-mono">@BotFather</span> → /newbot → ikuti instruksi → copy <strong className="text-zinc-200">Bot Token</strong></p>
+        <p>2. Chat ke bot kamu, lalu buka: <span className="font-mono text-sky-400">https://api.telegram.org/bot[TOKEN]/getUpdates</span></p>
+        <p>3. Lihat <span className="font-mono text-zinc-300">"chat":{'{'}"id": 12345678{'}'}</span> → itu <strong className="text-zinc-200">Chat ID</strong> kamu</p>
+        <p className="text-zinc-500 italic">Atau bisa juga pakai <span className="text-sky-400">@userinfobot</span> — forward pesan ke sana untuk dapat Chat ID.</p>
+      </div>
+
+      <form onSubmit={handleSave} className="space-y-4">
+        <div>
+          <label className="block text-xs text-zinc-500 mb-1">Bot Token</label>
+          <div className="relative">
+            <input
+              type={showToken ? 'text' : 'password'}
+              value={botToken}
+              onChange={e => setBotToken(e.target.value)}
+              placeholder="1234567890:ABCdef..."
+              className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 pr-9 text-sm text-zinc-200 focus:outline-none focus:border-sky-600 font-mono"
+            />
+            <button
+              type="button"
+              onClick={() => setShowToken(v => !v)}
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300"
+            >
+              {showToken ? <EyeOff size={13} /> : <Eye size={13} />}
+            </button>
+          </div>
+        </div>
+        <div>
+          <label className="block text-xs text-zinc-500 mb-1">Chat ID (nomor negatif untuk grup)</label>
+          <input
+            type="text"
+            value={chatId}
+            onChange={e => setChatId(e.target.value)}
+            placeholder="123456789 atau -100123456789"
+            className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-200 focus:outline-none focus:border-sky-600 font-mono"
+          />
+        </div>
+
+        <div className="flex flex-wrap gap-2 pt-1">
+          <button
+            type="submit"
+            disabled={saving}
+            className="flex items-center gap-2 bg-sky-700 hover:bg-sky-600 disabled:opacity-50 text-white rounded-lg px-4 py-2 text-sm font-medium transition-colors"
+          >
+            {saving ? <Loader2 size={14} className="animate-spin" /> : <Settings size={14} />}
+            {saving ? 'Menyimpan...' : 'Simpan Konfigurasi'}
+          </button>
+
+          <button
+            type="button"
+            onClick={handleTest}
+            disabled={testing || !botToken || !chatId}
+            className="flex items-center gap-2 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 disabled:opacity-40 text-zinc-200 rounded-lg px-4 py-2 text-sm font-medium transition-colors"
+          >
+            {testing ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle2 size={14} className="text-emerald-400" />}
+            {testing ? 'Mengirim...' : 'Test Koneksi'}
+          </button>
+
+          <button
+            type="button"
+            onClick={handleSendNow}
+            disabled={sending || !botToken || !chatId}
+            className="flex items-center gap-2 bg-emerald-700 hover:bg-emerald-600 disabled:opacity-40 text-white rounded-lg px-4 py-2 text-sm font-medium transition-colors"
+          >
+            {sending ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
+            {sending ? 'Mengirim Laporan...' : 'Kirim Laporan Sekarang'}
+          </button>
+        </div>
+      </form>
+
+      {/* Auto Report */}
+      <div className="mt-6 pt-6 border-t border-zinc-800 space-y-4">
+
+        {/* Toggle aktif/nonaktif */}
+        <div className="flex items-center justify-between">
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-medium text-zinc-200">⏰ Auto Report Harian</span>
+              <span className={`text-[10px] rounded px-2 py-0.5 ${autoEnabled ? 'bg-emerald-900/40 border border-emerald-700/50 text-emerald-300' : 'bg-zinc-800 border border-zinc-700 text-zinc-500'}`}>
+                {autoEnabled ? 'AKTIF' : 'NONAKTIF'}
+              </span>
+            </div>
+            <p className="text-xs text-zinc-500 mt-1">
+              Dikirim otomatis oleh server setiap hari — tidak perlu buka aplikasi.
+            </p>
+            {lastSent && (
+              <p className="text-[10px] text-zinc-600 mt-1">
+                Terakhir dikirim: {new Date(lastSent).toLocaleString('id-ID', { timeZone: 'Asia/Jakarta', dateStyle: 'medium', timeStyle: 'short' })}
+              </p>
+            )}
+          </div>
+          <button
+            type="button"
+            onClick={handleToggleAuto}
+            disabled={togglingAuto || !botToken || !chatId}
+            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors disabled:opacity-40 ${autoEnabled ? 'bg-emerald-600' : 'bg-zinc-700'}`}
+          >
+            <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${autoEnabled ? 'translate-x-6' : 'translate-x-1'}`} />
+          </button>
+        </div>
+
+        {/* Jam picker — bisa diubah tanpa restart server */}
+        <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-4">
+          <p className="text-xs text-zinc-400 font-medium mb-3">🕐 Jam Kirim Laporan (WIB)</p>
+          <div className="flex items-center gap-3">
+            <select
+              value={schedHour}
+              onChange={e => setSchedHour(Number(e.target.value))}
+              className="bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-200 focus:outline-none focus:border-sky-600"
+            >
+              {Array.from({ length: 24 }, (_, i) => (
+                <option key={i} value={i}>{String(i).padStart(2, '0')}</option>
+              ))}
+            </select>
+            <span className="text-zinc-400 font-bold">:</span>
+            <select
+              value={schedMinute}
+              onChange={e => setSchedMinute(Number(e.target.value))}
+              className="bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-200 focus:outline-none focus:border-sky-600"
+            >
+              {[0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55].map(m => (
+                <option key={m} value={m}>{String(m).padStart(2, '0')}</option>
+              ))}
+            </select>
+            <span className="text-xs text-zinc-500">WIB</span>
+            <button
+              type="button"
+              onClick={handleSaveSchedule}
+              disabled={savingSched}
+              className="flex items-center gap-1.5 bg-sky-700 hover:bg-sky-600 disabled:opacity-50 text-white rounded-lg px-3 py-2 text-xs font-medium transition-colors"
+            >
+              {savingSched ? <Loader2 size={12} className="animate-spin" /> : null}
+              {savingSched ? 'Menyimpan...' : 'Simpan Jadwal'}
+            </button>
+          </div>
+          <p className="text-[10px] text-zinc-600 mt-2">
+            Perubahan langsung aktif tanpa perlu restart server.
+          </p>
+        </div>
+
+        {/* Daftar Penerima Laporan */}
+        <div className="mt-4 pt-4 border-t border-zinc-800">
+          <div className="flex items-center justify-between mb-3">
+            <div>
+              <p className="text-xs text-zinc-400 font-medium">
+                📬 Penerima Laporan
+                {recipients.length > 0 && (
+                  <span className="ml-2 text-[10px] text-zinc-600">
+                    {recipients.filter(r => r.isActive).length} aktif dari {recipients.length}
+                  </span>
+                )}
+              </p>
+              <p className="text-[10px] text-zinc-600 mt-0.5">Laporan dikirim ke semua penerima aktif. Grup pakai Chat ID negatif.</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowAddForm(v => !v)}
+              className="text-xs bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-zinc-300 rounded-lg px-3 py-1.5 transition-colors"
+            >
+              {showAddForm ? '✕ Batal' : '+ Tambah'}
+            </button>
+          </div>
+
+          {/* Form tambah recipient */}
+          {showAddForm && (
+            <form onSubmit={handleAddRecipient} className="bg-zinc-900 border border-zinc-700 rounded-xl p-3 mb-3 space-y-2">
+              <input
+                type="text"
+                placeholder="Nama (misal: Owner, Group Laporan)"
+                value={newName}
+                onChange={e => setNewName(e.target.value)}
+                required
+                className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-200 focus:outline-none focus:border-sky-600"
+              />
+              <input
+                type="text"
+                placeholder="Chat ID (misal: 565228988 atau -100123456789 untuk grup)"
+                value={newChatId}
+                onChange={e => setNewChatId(e.target.value)}
+                required
+                className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-200 font-mono focus:outline-none focus:border-sky-600"
+              />
+              <div>
+                <input
+                  type="text"
+                  placeholder="Thread/Topic ID — opsional, hanya untuk grup dengan Topics"
+                  value={newThreadId}
+                  onChange={e => setNewThreadId(e.target.value)}
+                  className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-200 font-mono focus:outline-none focus:border-sky-600"
+                />
+                <p className="text-[10px] text-zinc-600 mt-1">
+                  Cara dapat Thread ID: buka topic di grup → klik kanan → Copy Link → angka di akhir URL
+                </p>
+              </div>
+              <button
+                type="submit"
+                disabled={addingRecipient}
+                className="flex items-center gap-1.5 bg-emerald-700 hover:bg-emerald-600 disabled:opacity-50 text-white rounded-lg px-3 py-1.5 text-xs font-medium"
+              >
+                {addingRecipient ? <Loader2 size={11} className="animate-spin" /> : null}
+                {addingRecipient ? 'Menambahkan...' : 'Tambahkan'}
+              </button>
+            </form>
+          )}
+
+          {/* List recipients */}
+          {loadingRecipients ? (
+            <div className="flex items-center gap-2 text-zinc-600 text-xs py-2">
+              <Loader2 size={12} className="animate-spin" /> Memuat...
+            </div>
+          ) : recipients.length === 0 ? (
+            <div className="text-xs text-zinc-600 py-3 text-center border border-dashed border-zinc-800 rounded-lg">
+              Belum ada penerima. Klik <strong>+ Tambah</strong> untuk menambahkan.<br />
+              <span className="text-[10px]">Jika kosong, laporan dikirim ke Chat ID di atas (konfigurasi lama).</span>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {recipients.map(r => (
+                <div key={r.id} className="flex items-center gap-2 bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2.5">
+                  {/* Status dot */}
+                  <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${r.isActive ? 'bg-emerald-500' : 'bg-zinc-600'}`} />
+                  {/* Info */}
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-medium text-zinc-200 truncate">{r.name}</p>
+                    <p className="text-[10px] text-zinc-500 font-mono truncate">
+                      {r.chatId}
+                      {r.threadId && <span className="text-zinc-600"> · topic:{r.threadId}</span>}
+                    </p>
+                  </div>
+                  {/* Actions */}
+                  <div className="flex items-center gap-1 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => handleTestRecipient(r.id, r.name)}
+                      disabled={testingId === r.id}
+                      title="Test kirim pesan"
+                      className="text-[10px] text-zinc-500 hover:text-sky-400 px-1.5 py-1 rounded transition-colors disabled:opacity-40"
+                    >
+                      {testingId === r.id ? <Loader2 size={11} className="animate-spin" /> : 'Test'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleToggleRecipient(r.id, r.isActive)}
+                      title={r.isActive ? 'Nonaktifkan' : 'Aktifkan'}
+                      className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${r.isActive ? 'bg-emerald-600' : 'bg-zinc-700'}`}
+                    >
+                      <span className={`inline-block h-3 w-3 transform rounded-full bg-white transition-transform ${r.isActive ? 'translate-x-5' : 'translate-x-1'}`} />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteRecipient(r.id, r.name)}
+                      title="Hapus"
+                      className="text-zinc-600 hover:text-red-400 px-1 py-1 rounded transition-colors"
+                    >
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/></svg>
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function PengaturanTab() {
+  const { toast } = useToast()
+  const [shopee, setShopee] = useState('')
+  const [tiktok, setTiktok] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [fetching, setFetching] = useState(true)
+
+  useEffect(() => {
+    fetch('/api/settings')
+      .then(r => r.json())
+      .then(d => {
+        if (d.success) {
+          setShopee(d.data?.biaya_admin_shopee ?? '14')
+          setTiktok(d.data?.biaya_admin_tiktok ?? '14.1')
+        }
+      })
+      .finally(() => setFetching(false))
+  }, [])
+
+  const handleSave = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setLoading(true)
+    try {
+      const results = await Promise.all([
+        fetch('/api/settings', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ key: 'biaya_admin_shopee', value: shopee }),
+        }),
+        fetch('/api/settings', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ key: 'biaya_admin_tiktok', value: tiktok }),
+        }),
+      ])
+      const jsons = await Promise.all(results.map(r => r.json()))
+      const failed = jsons.find(j => !j.success)
+      if (failed) throw new Error(failed.error)
+      toast({ title: 'Pengaturan berhasil disimpan', type: 'success' })
+    } catch (err: any) {
+      toast({ title: err.message || 'Gagal menyimpan', type: 'error' })
+    } finally { setLoading(false) }
+  }
+
+  return (
+    <div className="max-w-lg">
+      <div className="flex items-center gap-2 mb-4">
+        <Settings size={16} className="text-emerald-400" />
+        <h2 className="text-sm font-semibold text-zinc-200">Biaya Admin Platform</h2>
+      </div>
+      <div className="bg-amber-900/20 border border-amber-700/40 rounded-lg px-4 py-3 mb-5">
+        <p className="text-xs text-amber-300">
+          Perubahan hanya berlaku untuk data order yang diupload setelah penyimpanan ini.
+          Data order yang sudah ada tidak akan terpengaruh.
+        </p>
+      </div>
+      {fetching ? (
+        <div className="flex items-center gap-2 text-zinc-500 text-sm">
+          <Loader2 size={14} className="animate-spin" /> Memuat pengaturan...
+        </div>
+      ) : (
+        <form onSubmit={handleSave} className="space-y-4">
+          <div>
+            <label className="block text-xs text-zinc-500 mb-1">Biaya Admin Shopee (%)</label>
+            <input
+              type="number"
+              step="0.01"
+              min="0"
+              max="100"
+              value={shopee}
+              onChange={e => setShopee(e.target.value)}
+              required
+              className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-200 focus:outline-none focus:border-emerald-600"
+            />
+          </div>
+          <div>
+            <label className="block text-xs text-zinc-500 mb-1">Biaya Admin TikTok (%)</label>
+            <input
+              type="number"
+              step="0.01"
+              min="0"
+              max="100"
+              value={tiktok}
+              onChange={e => setTiktok(e.target.value)}
+              required
+              className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-200 focus:outline-none focus:border-emerald-600"
+            />
+          </div>
+          <button
+            type="submit"
+            disabled={loading}
+            className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white rounded-lg px-4 py-2 text-sm font-medium transition-colors"
+          >
+            {loading ? <Loader2 size={14} className="animate-spin" /> : null}
+            {loading ? 'Menyimpan...' : 'Simpan Pengaturan'}
+          </button>
+        </form>
+      )}
+
+      {/* Telegram Notification Settings */}
+      <TelegramSection />
+    </div>
+  )
+}
+
+function OwnerRoomContent() {
+  const searchParams = useSearchParams()
+  const tabParam = searchParams.get('tab')
+  const [activeTab, setActiveTab] = useState(tabParam || 'Users')
+
+  useEffect(() => {
+    if (tabParam && TABS.includes(tabParam)) {
+      setActiveTab(tabParam)
+    }
+  }, [tabParam])
+
+  return (
+    <AppLayout>
+      <div className="page-header">
+        <h1 className="page-title flex items-center gap-2"><Shield size={22} className="text-emerald-400" />Owner Room</h1>
+      </div>
+
+      <div className="flex gap-1 mb-6 bg-zinc-900 border border-zinc-800 rounded-xl p-1 w-fit">
+        {TABS.map(t => (
+          <button key={t} onClick={() => setActiveTab(t)}
+            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${activeTab === t ? 'bg-emerald-700 text-white' : 'text-zinc-500 hover:text-zinc-300'}`}>
+            {t}
+          </button>
+        ))}
+      </div>
+
+      {activeTab === 'Users' && <UsersTab />}
+      {activeTab === 'Audit Log' && <AuditTab />}
+      {activeTab === 'Kategori' && <KategoriTab />}
+      {activeTab === 'Backup Data' && <BackupTab />}
+      {activeTab === 'Pengaturan' && <PengaturanTab />}
+    </AppLayout>
+  )
+}
+
+export default function OwnerRoomPage() {
+  return (
+    <Suspense fallback={<div className="p-8 text-center text-zinc-500">Memuat Owner Room...</div>}>
+      <OwnerRoomContent />
+    </Suspense>
+  )
+}

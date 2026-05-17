@@ -1,0 +1,19 @@
+/** @type {import('next').NextConfig} */
+const nextConfig = {
+  output: 'standalone',
+  serverExternalPackages: ['@prisma/client', 'bcryptjs', 'node-cron'],
+  images: {
+    remotePatterns: [],
+  },
+  // instrumentationHook tidak perlu di Next.js 15 (sudah stable)
+  webpack: (config, { isServer }) => {
+    if (isServer) {
+      // node-cron must not be bundled by webpack — it uses Node.js APIs
+      const existing = Array.isArray(config.externals) ? config.externals : []
+      config.externals = [...existing, 'node-cron']
+    }
+    return config
+  },
+}
+
+module.exports = nextConfig
