@@ -2,18 +2,21 @@
  * POST /api/telegram/webhook
  *
  * Menerima pesan dari Telegram (webhook).
- * Hanya merespons pesan dari TELEGRAM_OWNER_CHAT_ID (whitelist single owner).
+ * Whitelist berdasarkan TELEGRAM_OWNER_CHAT_ID (bisa multi, comma-separated).
  *
  * Hybrid mode:
  * - Command (/top10, /stok, /omzet, /laporan, /help) → langsung query DB
  * - Pesan bebas → Adye AI (Claude Sonnet) dengan tool calling
+ *
+ * Pattern: Respond 200 immediately, process in background (fire-and-forget).
+ * Ini mencegah Telegram timeout & retry yang menyebabkan bot tidak responsif.
  */
 
 import { NextRequest, NextResponse } from 'next/server'
 import { processWithAI } from '@/lib/telegram-ai'
 import { buildDailyReport } from '@/lib/daily-report'
 
-// Chat ID yang diizinkan (owner saja)
+// Chat ID yang diizinkan (owner + group IDs, comma-separated)
 const OWNER_CHAT_ID = process.env.TELEGRAM_OWNER_CHAT_ID || '565228988'
 
 // ─────────────────────────────────────────────
@@ -36,21 +39,55 @@ async function sendReply(chatId: string | number, text: string, threadId?: numbe
         return
     }
 
-    const payload: Record<string, any> = {
-        chat_id: chatId,
-        text,
-        parse_mode: 'HTML',
+    // Telegram max message length = 4096 chars
+    const maxLen = 4000
+    const chunks: string[] = []
+    if (text.length <= maxLen) {
+        chunks.push(text)
+    } else {
+        // Split by newline to avoid breaking mid-word
+        let remaining = text
+        while (remaining.length > 0) {
+            if (remaining.length <= maxLen) {
+                chunks.push(remaining)
+                break
+            }
+            let splitIdx = remaining.lastIndexOf('\n', maxLen)
+            if (splitIdx < maxLen * 0.5) splitIdx = maxLen // fallback: hard cut
+            chunks.push(remaining.slice(0, splitIdx))
+            remaining = remaining.slice(splitIdx)
+        }
     }
-    if (threadId) payload.message_thread_id = threadId
 
-    try {
-        await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload),
-        })
-    } catch (err) {
-        console.error('[webhook] Gagal kirim reply:', err)
+    for (const chunk of chunks) {
+        const payload: Record<string, any> = {
+            chat_id: chatId,
+            text: chunk,
+            parse_mode: 'HTML',
+        }
+        if (threadId) payload.message_thread_id = threadId
+
+        try {
+            const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload),
+            })
+            if (!res.ok) {
+                const body = await res.text()
+                console.error(`[webhook] Telegram sendMessage error ${res.status}:`, body)
+                // Jika HTML parse error, coba kirim ulang tanpa parse_mode
+                if (res.status === 400 && body.includes("can't parse entities")) {
+                    await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ chat_id: chatId, text: chunk, ...(threadId ? { message_thread_id: threadId } : {}) }),
+                    })
+                }
+            }
+        } catch (err) {
+            console.error('[webhook] Gagal kirim reply:', err)
+        }
     }
 }
 
@@ -63,7 +100,7 @@ async function sendTyping(chatId: string | number) {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ chat_id: chatId, action: 'typing' }),
         })
-    } catch {}
+    } catch { }
 }
 
 // ─────────────────────────────────────────────
@@ -77,10 +114,13 @@ function getHelpText(): string {
 /top10hari — Top 10 produk terlaris hari ini
 /omzet — Omzet & profit hari ini
 /omzetminggu — Omzet & profit 7 hari
+/omzetbulan — Omzet & profit bulan ini
 /stok — Produk stok kritis
 /stokhabil — Produk stok habis
 /order — Ringkasan order hari ini
+/orderminggu — Ringkasan order 7 hari
 /platform — Breakdown per marketplace (7 hari)
+/platformhari — Breakdown per marketplace hari ini
 /laporan — Laporan harian lengkap
 
 <b>Atau tanya bebas, contoh:</b>
@@ -89,6 +129,62 @@ function getHelpText(): string {
 • "stok apa yang hampir habis?"
 • "order kemarin gimana?"
 • "platform mana yang paling banyak ordernya?"`
+}
+
+// ─────────────────────────────────────────────
+// Background processor (fire-and-forget)
+// ─────────────────────────────────────────────
+async function processMessage(chatId: number, text: string, threadId?: number) {
+    const cmd = text.toLowerCase().split(' ')[0]
+
+    // Kirim typing indicator
+    await sendTyping(chatId)
+
+    try {
+        let reply = ''
+
+        // Quick commands → langsung ke AI dengan prompt yang sudah terdefinisi
+        const commandMap: Record<string, string> = {
+            '/top10': 'ranking produk terlaris 10 besar minggu ini (7 hari terakhir)',
+            '/top10hari': 'ranking produk terlaris 10 besar hari ini',
+            '/omzet': 'ringkasan omzet dan profit hari ini',
+            '/omzetminggu': 'ringkasan omzet dan profit 7 hari terakhir',
+            '/omzetbulan': 'ringkasan omzet dan profit bulan ini',
+            '/stok': 'daftar produk yang stok kritis (di bawah ROP), tampilkan maksimal 15',
+            '/stokhabil': 'daftar produk yang stok sudah habis (0 atau minus)',
+            '/order': 'ringkasan order hari ini',
+            '/orderminggu': 'ringkasan order 7 hari terakhir',
+            '/platform': 'breakdown penjualan per platform 7 hari terakhir',
+            '/platformhari': 'breakdown penjualan per platform hari ini',
+        }
+
+        if (cmd === '/start') {
+            reply = `👋 Halo! Saya <b>Elyasr AI Assistant</b>.\n\nKirim /help untuk lihat daftar perintah, atau tanya langsung dengan bahasa bebas!\n\nContoh: "produk apa yang paling laku minggu ini?"`
+        } else if (cmd === '/help') {
+            reply = getHelpText()
+        } else if (cmd === '/laporan') {
+            await sendReply(chatId, '⏳ Menyiapkan laporan harian...', threadId)
+            const laporan = await buildDailyReport()
+            await sendReply(chatId, laporan, threadId)
+            return
+        } else if (commandMap[cmd]) {
+            // Command yang butuh AI + tools
+            reply = await processWithAI(commandMap[cmd])
+        } else if (text.startsWith('/')) {
+            // Unknown command
+            reply = `❓ Perintah tidak dikenal. Kirim /help untuk lihat daftar perintah.`
+        } else {
+            // Natural language → AI
+            reply = await processWithAI(text)
+        }
+
+        if (reply) {
+            await sendReply(chatId, reply, threadId)
+        }
+    } catch (err: any) {
+        console.error('[webhook] Error processing message:', err)
+        await sendReply(chatId, `❌ Terjadi error: ${err.message || 'Unknown error'}. Coba lagi nanti.`, threadId)
+    }
 }
 
 // ─────────────────────────────────────────────
@@ -106,14 +202,21 @@ export async function POST(req: NextRequest) {
     const message = body?.message
     if (!message) return NextResponse.json({ ok: true })
 
-    const chatId   = message.chat?.id
-    const fromId   = message.from?.id
+    const chatId = message.chat?.id
+    const fromId = message.from?.id
     const threadId = message.message_thread_id
-    const text     = (message.text || '').trim()
+    const text = (message.text || '').trim()
 
     // ─── Whitelist check ───────────────────────
-    const ownerIds = OWNER_CHAT_ID.split(',').map(s => s.trim())
-    const isOwner  = ownerIds.includes(String(fromId)) || ownerIds.includes(String(chatId))
+    // Support: owner chat ID, group chat ID, atau keduanya (comma-separated)
+    const ownerIds = OWNER_CHAT_ID.split(',').map(s => s.trim()).filter(Boolean)
+
+    if (ownerIds.length === 0) {
+        console.error('[webhook] TELEGRAM_OWNER_CHAT_ID belum dikonfigurasi!')
+        return NextResponse.json({ ok: true })
+    }
+
+    const isOwner = ownerIds.includes(String(fromId)) || ownerIds.includes(String(chatId))
 
     if (!isOwner) {
         console.log(`[webhook] Pesan dari non-owner diabaikan: fromId=${fromId}, chatId=${chatId}`)
@@ -122,60 +225,36 @@ export async function POST(req: NextRequest) {
 
     if (!text) return NextResponse.json({ ok: true })
 
-    console.log(`[webhook] Pesan dari owner: "${text.slice(0, 80)}"`)
+    console.log(`[webhook] Pesan dari owner: "${text.slice(0, 100)}" (from=${fromId}, chat=${chatId})`)
 
-    // ─── Command routing ───────────────────────
-    const cmd = text.toLowerCase().split(' ')[0]
-
-    // Kirim typing indicator (non-blocking)
-    sendTyping(chatId)
-
-    try {
-        let reply = ''
-
-        // Quick commands → langsung ke AI dengan prompt yang sudah terdefinisi
-        const commandMap: Record<string, string> = {
-            '/start':        'Halo! Saya siap membantu.',
-            '/help':         getHelpText(),
-            '/top10':        'ranking produk terlaris 10 besar minggu ini (7 hari terakhir)',
-            '/top10hari':    'ranking produk terlaris 10 besar hari ini',
-            '/omzet':        'ringkasan omzet dan profit hari ini',
-            '/omzetminggu':  'ringkasan omzet dan profit 7 hari terakhir',
-            '/omzetbulan':   'ringkasan omzet dan profit bulan ini',
-            '/stok':         'daftar produk yang stok kritis (di bawah ROP), tampilkan maksimal 15',
-            '/stokhabil':    'daftar produk yang stok sudah habis (0 atau minus)',
-            '/order':        'ringkasan order hari ini',
-            '/orderminggu':  'ringkasan order 7 hari terakhir',
-            '/platform':     'breakdown penjualan per platform 7 hari terakhir',
-            '/platformhari': 'breakdown penjualan per platform hari ini',
-        }
-
-        if (cmd === '/start') {
-            reply = `👋 Halo! Saya <b>Elyasr AI Assistant</b>.\n\nKirim /help untuk lihat daftar perintah, atau tanya langsung dengan bahasa bebas!\n\nContoh: "produk apa yang paling laku minggu ini?"`
-        } else if (cmd === '/help') {
-            reply = getHelpText()
-        } else if (cmd === '/laporan') {
-            reply = '⏳ Menyiapkan laporan harian...'
-            await sendReply(chatId, reply, threadId)
-            const laporan = await buildDailyReport()
-            await sendReply(chatId, laporan, threadId)
-            return NextResponse.json({ ok: true })
-        } else if (commandMap[cmd]) {
-            // Command yang butuh AI + tools
-            reply = await processWithAI(commandMap[cmd])
-        } else if (text.startsWith('/')) {
-            // Unknown command
-            reply = `❓ Perintah tidak dikenal. Kirim /help untuk lihat daftar perintah.`
-        } else {
-            // Natural language → AI
-            reply = await processWithAI(text)
-        }
-
-        await sendReply(chatId, reply, threadId)
-    } catch (err: any) {
-        console.error('[webhook] Error:', err)
-        await sendReply(chatId, `❌ Terjadi error: ${err.message}. Coba lagi nanti.`, threadId)
-    }
+    // ─── Fire-and-forget: respond 200 immediately, process in background ───
+    // Ini KRUSIAL agar Telegram tidak timeout dan retry.
+    // Di Node.js standalone (Docker), promise yang tidak di-await tetap berjalan.
+    processMessage(chatId, text, threadId).catch(err => {
+        console.error('[webhook] Unhandled error in background processing:', err)
+    })
 
     return NextResponse.json({ ok: true })
+}
+
+// ─────────────────────────────────────────────
+// GET — Health check / diagnostics
+// ─────────────────────────────────────────────
+export async function GET() {
+    const hasToken = !!(await getBotToken())
+    const hasAdyeKey = !!process.env.ADYE_API_KEY
+    const ownerIds = OWNER_CHAT_ID.split(',').map((s: string) => s.trim()).filter(Boolean)
+
+    return NextResponse.json({
+        ok: true,
+        status: 'Webhook endpoint active',
+        config: {
+            botToken: hasToken ? '✅ configured' : '❌ missing',
+            adyeApiKey: hasAdyeKey ? '✅ configured' : '❌ missing',
+            adyeModel: process.env.ADYE_MODEL || 'claude-sonnet-4-6',
+            adyeBaseUrl: process.env.ADYE_BASE_URL || 'https://adye.dev/v1',
+            ownerChatIds: ownerIds.length > 0 ? `✅ ${ownerIds.length} ID(s)` : '❌ none',
+        },
+        timestamp: new Date().toISOString(),
+    })
 }
