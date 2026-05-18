@@ -15,7 +15,7 @@ import {
 // Config
 // ─────────────────────────────────────────────
 const ADYE_BASE_URL = process.env.ADYE_BASE_URL || 'https://adye.dev/v1'
-const ADYE_MODEL = process.env.ADYE_MODEL || 'claude-sonnet-4-6'
+const ADYE_MODEL = process.env.ADYE_MODEL || 'claude-sonnet-4.6'
 const ADYE_API_KEY = process.env.ADYE_API_KEY || ''
 
 // Timeout untuk API call (30 detik)
