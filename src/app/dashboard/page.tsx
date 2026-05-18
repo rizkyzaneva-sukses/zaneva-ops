@@ -146,14 +146,22 @@ export default function DashboardPage() {
   // Sparkline series helpers
   const spark = useMemo(() => {
     if (!sparkData?.series) return {}
-    const s = sparkData.series as { day: string; omzet: number; gp: number; net: number; aov: number; orders: number; marginPct: number }[]
+    const s = sparkData.series as {
+      omzet?: number[]
+      gp?: number[]
+      net?: number[]
+      aov?: number[]
+      orders?: number[]
+      marginPct?: number[]
+    }
+    // API returns series as object of arrays, not array of objects
     return {
-      omzet: s.map(d => d.omzet),
-      gp: s.map(d => d.gp),
-      net: s.map(d => d.net),
-      aov: s.map(d => d.aov),
-      orders: s.map(d => d.orders),
-      margin: s.map(d => d.marginPct),
+      omzet: Array.isArray(s.omzet) ? s.omzet : [],
+      gp: Array.isArray(s.gp) ? s.gp : [],
+      net: Array.isArray(s.net) ? s.net : [],
+      aov: Array.isArray(s.aov) ? s.aov : [],
+      orders: Array.isArray(s.orders) ? s.orders : [],
+      margin: Array.isArray(s.marginPct) ? s.marginPct : [],
     }
   }, [sparkData])
 

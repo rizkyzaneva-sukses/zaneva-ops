@@ -199,7 +199,7 @@ export async function GET(request: NextRequest) {
             COALESCE(platform, 'Unknown') AS platform,
             COUNT(*) AS cnt,
             COALESCE(SUM(real_omzet), 0) AS total_omzet,
-            COALESCE(SUM(hpp * qty), 0) AS total_hpp
+            COALESCE(SUM(CAST(hpp AS bigint) * CAST(qty AS bigint)), 0) AS total_hpp
           FROM orders
           WHERE trx_date >= ${gteDate} AND trx_date <= ${lteDate}
             AND status NOT ILIKE '%batal%'
@@ -213,7 +213,7 @@ export async function GET(request: NextRequest) {
             COALESCE(platform, 'Unknown') AS platform,
             COUNT(*) AS cnt,
             COALESCE(SUM(real_omzet), 0) AS total_omzet,
-            COALESCE(SUM(hpp * qty), 0) AS total_hpp
+            COALESCE(SUM(CAST(hpp AS bigint) * CAST(qty AS bigint)), 0) AS total_hpp
           FROM orders
           WHERE status NOT ILIKE '%batal%'
             AND status NOT ILIKE '%cancel%'
@@ -282,7 +282,7 @@ export async function GET(request: NextRequest) {
       ? prisma.$queryRaw<{ total_omzet: bigint; total_hpp: bigint }[]>`
           SELECT
             COALESCE(SUM(real_omzet), 0) AS total_omzet,
-            COALESCE(SUM(hpp * qty), 0) AS total_hpp
+            COALESCE(SUM(CAST(hpp AS bigint) * CAST(qty AS bigint)), 0) AS total_hpp
           FROM orders
           WHERE trx_date >= ${prevGte} AND trx_date <= ${prevLte}
             AND status NOT ILIKE '%batal%'
@@ -325,7 +325,7 @@ export async function GET(request: NextRequest) {
           SELECT
             TO_CHAR((trx_date AT TIME ZONE 'Asia/Jakarta')::date, 'YYYY-MM-DD') AS day,
             COALESCE(SUM(CASE WHEN status NOT ILIKE '%batal%' AND status NOT ILIKE '%cancel%' AND status NOT ILIKE '%dibatalkan%' THEN real_omzet ELSE 0 END), 0) AS omzet,
-            COALESCE(SUM(CASE WHEN status NOT ILIKE '%batal%' AND status NOT ILIKE '%cancel%' AND status NOT ILIKE '%dibatalkan%' THEN hpp * qty ELSE 0 END), 0) AS hpp,
+            COALESCE(SUM(CASE WHEN status NOT ILIKE '%batal%' AND status NOT ILIKE '%cancel%' AND status NOT ILIKE '%dibatalkan%' THEN CAST(hpp AS bigint) * CAST(qty AS bigint) ELSE 0 END), 0) AS hpp,
             COALESCE(SUM(CASE WHEN status NOT ILIKE '%batal%' AND status NOT ILIKE '%cancel%' AND status NOT ILIKE '%dibatalkan%' THEN 1 ELSE 0 END), 0) AS orders_valid,
             COALESCE(SUM(CASE WHEN status ILIKE '%batal%' OR status ILIKE '%cancel%' OR status ILIKE '%dibatalkan%' THEN 1 ELSE 0 END), 0) AS orders_batal
           FROM orders

@@ -12,6 +12,7 @@ import { apiSuccess, apiError } from '@/lib/utils'
  * Lightweight: aggregate per day in SQL.
  */
 export async function GET(request: NextRequest) {
+  try {
   const session = await getSession()
   if (!session.isLoggedIn) return apiError('Unauthorized', 401)
 
@@ -27,12 +28,12 @@ export async function GET(request: NextRequest) {
       { day: string; omzet: bigint; hpp: bigint; cnt: bigint }[]
     >`
       SELECT
-        TO_CHAR(trx_date AT TIME ZONE 'Asia/Jakarta', 'YYYY-MM-DD') AS day,
+        TO_CHAR((trx_date AT TIME ZONE 'Asia/Jakarta')::date, 'YYYY-MM-DD') AS day,
         COALESCE(SUM(real_omzet), 0)::bigint AS omzet,
-        COALESCE(SUM(hpp * qty), 0)::bigint AS hpp,
+        COALESCE(SUM(CAST(hpp AS bigint) * CAST(qty AS bigint)), 0)::bigint AS hpp,
         COUNT(*)::bigint AS cnt
       FROM orders
-      WHERE trx_date >= ${since}
+      WHERE trx_date >= ${since}::timestamp
         AND status NOT ILIKE '%batal%'
         AND status NOT ILIKE '%cancel%'
         AND status NOT ILIKE '%dibatalkan%'
@@ -41,13 +42,13 @@ export async function GET(request: NextRequest) {
     `,
     prisma.$queryRaw<{ day: string; total: bigint }[]>`
       SELECT
-        TO_CHAR(l.trx_date AT TIME ZONE 'Asia/Jakarta', 'YYYY-MM-DD') AS day,
+        TO_CHAR((l.trx_date AT TIME ZONE 'Asia/Jakarta')::date, 'YYYY-MM-DD') AS day,
         COALESCE(SUM(ABS(l.amount)), 0)::bigint AS total
       FROM wallet_ledger l
       JOIN wallets w ON w.id = l.wallet_id
       WHERE w.is_ads_budget = true
         AND l.trx_type = 'EXPENSE'
-        AND l.trx_date >= ${since}
+        AND l.trx_date >= ${since}::timestamp
       GROUP BY day
       ORDER BY day ASC
     `,
@@ -91,4 +92,9 @@ export async function GET(request: NextRequest) {
     days,
     series: { omzet, gp, net, aov, orders, marginPct },
   })
+  } catch (err) {
+    console.error('[dashboard/sparklines] Error:', err)
+    const message = err instanceof Error ? err.message : 'Unknown error'
+    return apiError(`Gagal memuat sparklines: ${message}`, 500)
+  }
 }
