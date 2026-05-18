@@ -13,6 +13,7 @@ import { apiSuccess, apiError } from '@/lib/utils'
  * karena order_created_at format campuran TikTok/Shopee tidak reliable untuk comparison.
  */
 export async function GET(request: NextRequest) {
+  try {
   const session = await getSession()
   if (!session.isLoggedIn) return apiError('Unauthorized', 401)
 
@@ -552,4 +553,9 @@ export async function GET(request: NextRequest) {
       })),
     },
   })
+  } catch (err) {
+    console.error('[dashboard/stats] Error:', err)
+    const message = err instanceof Error ? err.message : 'Unknown error'
+    return apiError(`Gagal memuat data dashboard: ${message}`, 500)
+  }
 }

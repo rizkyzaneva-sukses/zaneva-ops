@@ -1,0 +1,135 @@
+   ▲ Next.js 15.0.3
+   - Environments: .env
+
+   Creating an optimized production build ...
+ ✓ Compiled successfully
+   Linting and checking validity of types ...
+   Collecting page data ...
+   Generating static pages (0/100) ...
+   Generating static pages (25/100) 
+   Generating static pages (50/100) 
+   Generating static pages (75/100) 
+ ✓ Generating static pages (100/100)
+   Finalizing page optimization ...
+   Collecting build traces ...
+
+Route (app)                                 Size     First Load JS
+┌ ○ /                                       337 B           101 kB
+├ ○ /_not-found                             905 B           101 kB
+├ ○ /ai-insights                            4.95 kB         139 kB
+├ ○ /alerts                                 2.91 kB         137 kB
+├ ƒ /api/ai/insights                        337 B           101 kB
+├ ƒ /api/alerts                             337 B           101 kB
+├ ƒ /api/aset-tetap                         337 B           101 kB
+├ ƒ /api/aset-tetap/batch                   337 B           101 kB
+├ ƒ /api/audit                              337 B           101 kB
+├ ƒ /api/auth/login                         337 B           101 kB
+├ ƒ /api/auth/logout                        337 B           101 kB
+├ ƒ /api/auth/me                            337 B           101 kB
+├ ƒ /api/backup                             337 B           101 kB
+├ ƒ /api/categories                         337 B           101 kB
+├ ƒ /api/crm                                337 B           101 kB
+├ ƒ /api/dashboard/action-center            337 B           101 kB
+├ ƒ /api/dashboard/ar-ap                    337 B           101 kB
+├ ƒ /api/dashboard/cashflow                 337 B           101 kB
+├ ƒ /api/dashboard/inventory-health         337 B           101 kB
+├ ƒ /api/dashboard/profit-detail            337 B           101 kB
+├ ƒ /api/dashboard/scoreboard               337 B           101 kB
+├ ƒ /api/dashboard/sparklines               337 B           101 kB
+├ ƒ /api/dashboard/stats                    337 B           101 kB
+├ ƒ /api/finance/categories                 337 B           101 kB
+├ ƒ /api/inventory                          337 B           101 kB
+├ ƒ /api/inventory/ledger                   337 B           101 kB
+├ ƒ /api/master-categories                  337 B           101 kB
+├ ƒ /api/modal-awal                         337 B           101 kB
+├ ƒ /api/opname                             337 B           101 kB
+├ ƒ /api/opname/[id]/commit                 337 B           101 kB
+├ ƒ /api/orders                             337 B           101 kB
+├ ƒ /api/orders/[id]                        337 B           101 kB
+├ ƒ /api/orders/backfill-hpp                337 B           101 kB
+├ ƒ /api/orders/by-resi                     337 B           101 kB
+├ ƒ /api/orders/export                      337 B           101 kB
+├ ƒ /api/payouts                            337 B           101 kB
+├ ƒ /api/payouts/backfill-dates             337 B           101 kB
+├ ƒ /api/payouts/reset-all                  337 B           101 kB
+├ ƒ /api/payouts/summary                    337 B           101 kB
+├ ƒ /api/procurement/receive                337 B           101 kB
+├ ƒ /api/products                           337 B           101 kB
+├ ƒ /api/products/[id]                      337 B           101 kB
+├ ƒ /api/products/import                    337 B           101 kB
+├ ƒ /api/products/search                    337 B           101 kB
+├ ƒ /api/purchase-orders                    337 B           101 kB
+├ ƒ /api/purchase-orders/[id]               337 B           101 kB
+├ ƒ /api/report/cron-telegram               337 B           101 kB
+├ ƒ /api/report/daily                       337 B           101 kB
+├ ƒ /api/report/scheduler-status            337 B           101 kB
+├ ƒ /api/report/send-telegram               337 B           101 kB
+├ ƒ /api/report/test-telegram               337 B           101 kB
+├ ƒ /api/reports                            337 B           101 kB
+├ ƒ /api/reports/balance-sheet              337 B           101 kB
+├ ƒ /api/reports/cash-flow                  337 B           101 kB
+├ ƒ /api/reports/pl                         337 B           101 kB
+├ ƒ /api/revisions                          337 B           101 kB
+├ ƒ /api/scan                               337 B           101 kB
+├ ƒ /api/scan/[id]/commit                   337 B           101 kB
+├ ƒ /api/scan/bulk                          337 B           101 kB
+├ ƒ /api/scan/order                         337 B           101 kB
+├ ƒ /api/scan/retur                         337 B           101 kB
+├ ƒ /api/settings                           337 B           101 kB
+├ ƒ /api/settings/report-schedule           337 B           101 kB
+├ ƒ /api/settings/targets                   337 B           101 kB
+├ ƒ /api/settings/telegram-recipients       337 B           101 kB
+├ ƒ /api/settings/telegram-recipients/[id]  337 B           101 kB
+├ ƒ /api/sku-mappings                       337 B           101 kB
+├ ƒ /api/sku-mappings/[id]                  337 B           101 kB
+├ ƒ /api/sku-mappings/import                337 B           101 kB
+├ ƒ /api/telegram/adye-models               337 B           101 kB
+├ ƒ /api/telegram/set-webhook               337 B           101 kB
+├ ƒ /api/telegram/webhook                   337 B           101 kB
+├ ƒ /api/users                              337 B           101 kB
+├ ƒ /api/users/[id]                         337 B           101 kB
+├ ƒ /api/utang-piutang                      337 B           101 kB
+├ ƒ /api/utang-piutang/outstanding-orders   337 B           101 kB
+├ ƒ /api/utang-piutang/pay                  337 B           101 kB
+├ ƒ /api/vendor-payments                    337 B           101 kB
+├ ƒ /api/vendors                            337 B           101 kB
+├ ƒ /api/vendors/[id]                       337 B           101 kB
+├ ƒ /api/wallet                             337 B           101 kB
+├ ƒ /api/wallet/[id]                        337 B           101 kB
+├ ƒ /api/wallet/ledger                      337 B           101 kB
+├ ○ /aset-tetap                             3.21 kB         137 kB
+├ ○ /crm                                    2.57 kB         136 kB
+├ ○ /dashboard                              120 kB          254 kB
+├ ○ /documentation                          9.9 kB          140 kB
+├ ○ /external-inventory                     1.41 kB         111 kB
+├ ○ /finance                                24.6 kB         304 kB
+├ ○ /inventory                              17.8 kB         159 kB
+├ ○ /inventory-ledger                       2.05 kB         136 kB
+├ ○ /inventory-scan                         7.65 kB         149 kB
+├ ○ /login                                  2.67 kB         112 kB
+├ ○ /master-products                        6.08 kB         147 kB
+├ ○ /modal-awal                             2.85 kB         137 kB
+├ ○ /orders                                 8.25 kB         288 kB
+├ ○ /owner-room                             12 kB           146 kB
+├ ○ /payouts                                7.16 kB         287 kB
+├ ○ /procurement                            12.6 kB         150 kB
+├ ○ /produk-gabungan                        5.8 kB          278 kB
+├ ○ /purchase-orders                        8.4 kB          146 kB
+├ ○ /reports                                4.47 kB         138 kB
+├ ○ /scan-order                             115 kB          246 kB
+├ ○ /stock-opname                           3.21 kB         144 kB
+├ ○ /suggest-revision                       4.16 kB         138 kB
+├ ○ /utang-piutang                          3.6 kB          137 kB
+├ ○ /vendor-payments                        1.98 kB         139 kB
+└ ○ /vendors                                3.48 kB         137 kB
++ First Load JS shared by all               100 kB
+  ├ chunks/1517-2467a840bac581b3.js         45.8 kB
+  ├ chunks/4bd1b696-107e429b64d9b7b0.js     52.5 kB
+  └ other shared chunks (total)             1.96 kB
+
+
+ƒ Middleware                                60.1 kB
+
+○  (Static)   prerendered as static content
+ƒ  (Dynamic)  server-rendered on demand
+

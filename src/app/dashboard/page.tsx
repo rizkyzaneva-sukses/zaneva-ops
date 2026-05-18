@@ -66,16 +66,21 @@ export default function DashboardPage() {
   const isCompact = viewMode === 'compact'
 
   // ── Main stats query (KPI + trend + operational) ──────
-  const { data, isLoading, refetch } = useQuery({
+  const { data, isLoading, error, refetch } = useQuery({
     queryKey: ['dashboard-stats', dateFrom, dateTo],
     queryFn: async () => {
       const params = new URLSearchParams({ dateFrom, dateTo })
       const res = await fetch(`/api/dashboard/stats?${params}`)
-      return res.json().then(d => d.data)
+      const json = await res.json()
+      if (!res.ok || !json.success) {
+        throw new Error(json.error || 'Gagal memuat data dashboard')
+      }
+      return json.data
     },
     staleTime: 60_000,
     placeholderData: (prev: any) => prev,
     refetchOnWindowFocus: false,
+    retry: 2,
   })
 
   // ── Sparklines query (14-day mini series for KPI cards) ──
@@ -220,6 +225,25 @@ export default function DashboardPage() {
         <span className="text-[10px] text-zinc-600 ml-auto">vs periode sebelumnya</span>
       </div>
 
+      {/* ─── Error state ─── */}
+      {error && (
+        <div className="bg-red-950/30 border border-red-500/30 rounded-xl p-4 mb-6">
+          <div className="flex items-center gap-2">
+            <AlertTriangle size={16} className="text-red-400 shrink-0" />
+            <div>
+              <p className="text-sm text-red-300 font-medium">Gagal memuat data dashboard</p>
+              <p className="text-xs text-red-400/70 mt-0.5">{error.message}</p>
+            </div>
+            <button
+              onClick={() => refetch()}
+              className="ml-auto px-3 py-1.5 text-xs bg-red-500/20 hover:bg-red-500/30 text-red-300 rounded-lg transition-colors"
+            >
+              Coba Lagi
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* ═══════════════════════════════════════════════════
           SECTION 1: ACTION CENTER (owner/finance only)
           ═══════════════════════════════════════════════════ */}
@@ -248,7 +272,7 @@ export default function DashboardPage() {
           <KpiCard
             label="Gross Profit"
             value={formatRupiah(data?.omzet?.grossProfit ?? 0, true)}
-            sub={data?.omzet?.total > 0 ? `${((data.omzet.grossProfit / data.omzet.total) * 100).toFixed(1)}% margin` : 'omzet - HPP'}
+            sub={data?.omzet?.total > 0 ? `${(((data?.omzet?.grossProfit ?? 0) / data.omzet.total) * 100).toFixed(1)}% margin` : 'omzet - HPP'}
             icon={ArrowUpRight}
             color="blue"
             delta={data?.delta?.grossProfit}
@@ -327,7 +351,7 @@ export default function DashboardPage() {
           <KpiCard
             label="Ads Spend"
             value={formatRupiah(data?.omzet?.totalAdSpend ?? 0, true)}
-            sub={data?.omzet?.total > 0 ? `${((data.omzet.totalAdSpend / data.omzet.total) * 100).toFixed(1)}% of omzet` : '-'}
+            sub={data?.omzet?.total > 0 ? `${(((data?.omzet?.totalAdSpend ?? 0) / data.omzet.total) * 100).toFixed(1)}% of omzet` : '-'}
             icon={Banknote}
             color="orange"
             delta={data?.delta?.adSpend}
@@ -345,14 +369,14 @@ export default function DashboardPage() {
           <KpiCard
             label="Piutang Outstanding"
             value={formatRupiah(data?.receivable?.piutang?.total ?? 0, true)}
-            sub={`${data?.receivable?.piutang?.count ?? 0} item${(data?.receivable?.piutang?.overdue ?? 0) > 0 ? ` • ${formatRupiah(data.receivable.piutang.overdue, true)} overdue` : ''}`}
+            sub={`${data?.receivable?.piutang?.count ?? 0} item${(data?.receivable?.piutang?.overdue ?? 0) > 0 ? ` • ${formatRupiah(data?.receivable?.piutang?.overdue ?? 0, true)} overdue` : ''}`}
             icon={FileWarning}
             color={(data?.receivable?.piutang?.overdue ?? 0) > 0 ? 'orange' : 'cyan'}
           />
           <KpiCard
             label="Utang Outstanding"
             value={formatRupiah(data?.receivable?.utang?.total ?? 0, true)}
-            sub={`${data?.receivable?.utang?.count ?? 0} item${(data?.receivable?.utang?.overdue ?? 0) > 0 ? ` • ${formatRupiah(data.receivable.utang.overdue, true)} overdue` : ''}`}
+            sub={`${data?.receivable?.utang?.count ?? 0} item${(data?.receivable?.utang?.overdue ?? 0) > 0 ? ` • ${formatRupiah(data?.receivable?.utang?.overdue ?? 0, true)} overdue` : ''}`}
             icon={FileWarning}
             color={(data?.receivable?.utang?.overdue ?? 0) > 0 ? 'red' : 'purple'}
           />
