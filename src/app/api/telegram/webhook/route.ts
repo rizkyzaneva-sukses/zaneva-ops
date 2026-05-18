@@ -109,26 +109,42 @@ async function sendTyping(chatId: string | number) {
 function getHelpText(): string {
     return `🤖 <b>Elyasr AI Assistant</b>
 
-<b>Command Cepat:</b>
+<b>📊 Penjualan & Order:</b>
 /top10 — Top 10 produk terlaris (7 hari)
 /top10hari — Top 10 produk terlaris hari ini
 /omzet — Omzet & profit hari ini
 /omzetminggu — Omzet & profit 7 hari
 /omzetbulan — Omzet & profit bulan ini
-/stok — Produk stok kritis
-/stokhabil — Produk stok habis
 /order — Ringkasan order hari ini
 /orderminggu — Ringkasan order 7 hari
 /platform — Breakdown per marketplace (7 hari)
 /platformhari — Breakdown per marketplace hari ini
+
+<b>📦 Inventory & Fulfillment:</b>
+/stok — Produk stok kritis
+/stokhabil — Produk stok habis
+/deadstock — Produk dead stock (30 hari tanpa penjualan)
+/fulfillment — Progress scan & fulfillment hari ini
+
+<b>💰 Keuangan:</b>
+/saldo — Ringkasan saldo semua wallet
+/pengeluaran — Breakdown pengeluaran bulan ini
+/utang — Utang & piutang outstanding
+/po — Status purchase order yang belum selesai
+
+<b>👥 Customer & Geo:</b>
+/kota — Top 10 kota (7 hari)
+/customer — Analisis customer & repeat buyer (30 hari)
+
+<b>📑 Laporan:</b>
 /laporan — Laporan harian lengkap
 
 <b>Atau tanya bebas, contoh:</b>
 • "produk apa yang paling laku minggu ini?"
-• "berapa omzet bulan ini?"
-• "stok apa yang hampir habis?"
-• "order kemarin gimana?"
-• "platform mana yang paling banyak ordernya?"`
+• "berapa omzet bulan ini vs bulan lalu?"
+• "saldo wallet sekarang berapa?"
+• "barang apa yang dead stock?"
+• "kota mana paling banyak order?"`
 }
 
 // ─────────────────────────────────────────────
@@ -156,6 +172,14 @@ async function processMessage(chatId: number, text: string, threadId?: number) {
             '/orderminggu': 'ringkasan order 7 hari terakhir',
             '/platform': 'breakdown penjualan per platform 7 hari terakhir',
             '/platformhari': 'breakdown penjualan per platform hari ini',
+            '/saldo': 'ringkasan saldo semua wallet dan posisi kas',
+            '/pengeluaran': 'breakdown pengeluaran per kategori bulan ini',
+            '/utang': 'ringkasan utang dan piutang outstanding',
+            '/po': 'status purchase order yang masih open',
+            '/deadstock': 'produk dead stock (stok tinggi tapi tidak ada penjualan 30 hari)',
+            '/kota': 'top 10 kota dengan order terbanyak 7 hari terakhir',
+            '/customer': 'analisis customer dan repeat buyer 30 hari terakhir',
+            '/fulfillment': 'progress scan dan fulfillment hari ini',
         }
 
         if (cmd === '/start') {

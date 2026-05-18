@@ -9,6 +9,16 @@ import {
     getStockLevels,
     getOrdersSummary,
     getPlatformBreakdown,
+    getWalletSummary,
+    getExpenseBreakdown,
+    getPayoutSummary,
+    getUtangPiutangSummary,
+    getPurchaseOrderStatus,
+    getDeadStock,
+    getGeoAnalysis,
+    getCustomerAnalysis,
+    getScanFulfillment,
+    getPeriodComparison,
 } from '@/lib/bot-tools'
 
 // ─────────────────────────────────────────────
@@ -203,6 +213,174 @@ const TOOLS = [
             },
         },
     },
+    {
+        type: 'function',
+        function: {
+            name: 'get_wallet_summary',
+            description: 'Ambil ringkasan saldo semua wallet, total kas, dan transaksi terakhir. Gunakan untuk pertanyaan tentang "saldo wallet", "total kas", "uang di rekening", "posisi keuangan".',
+            parameters: { type: 'object', properties: {}, required: [] },
+        },
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'get_expense_breakdown',
+            description: 'Ambil breakdown pengeluaran (EXPENSE) per kategori dari wallet ledger. Gunakan untuk pertanyaan tentang "pengeluaran", "biaya", "expense per kategori", "kemana uang habis".',
+            parameters: {
+                type: 'object',
+                properties: {
+                    period: {
+                        type: 'string',
+                        enum: ['today', 'yesterday', 'week', 'month'],
+                        description: 'Periode preset. Default month. Abaikan jika menggunakan start_date/end_date.',
+                    },
+                    start_date: { type: 'string', description: 'Tanggal mulai YYYY-MM-DD (WIB).' },
+                    end_date: { type: 'string', description: 'Tanggal akhir YYYY-MM-DD (WIB).' },
+                },
+                required: [],
+            },
+        },
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'get_payout_summary',
+            description: 'Ambil ringkasan payout marketplace (penerimaan dari Shopee/Tokopedia/dll) per platform — omzet, fee, beban ongkir, net income. Gunakan untuk pertanyaan tentang "payout", "pencairan dana", "net income marketplace".',
+            parameters: {
+                type: 'object',
+                properties: {
+                    period: {
+                        type: 'string',
+                        enum: ['today', 'yesterday', 'week', 'month'],
+                        description: 'Periode preset. Default month.',
+                    },
+                    start_date: { type: 'string', description: 'Tanggal mulai YYYY-MM-DD (WIB).' },
+                    end_date: { type: 'string', description: 'Tanggal akhir YYYY-MM-DD (WIB).' },
+                },
+                required: [],
+            },
+        },
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'get_utang_piutang_summary',
+            description: 'Ambil ringkasan utang & piutang outstanding, total amount, item yang mendekati jatuh tempo (≤7 hari) dan yang sudah overdue. Gunakan untuk "utang", "piutang", "tagihan", "kewajiban".',
+            parameters: { type: 'object', properties: {}, required: [] },
+        },
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'get_purchase_order_status',
+            description: 'Ambil status purchase order. Gunakan untuk pertanyaan tentang "PO", "purchase order", "pesanan vendor", "barang dari vendor".',
+            parameters: {
+                type: 'object',
+                properties: {
+                    filter: {
+                        type: 'string',
+                        enum: ['open', 'overdue', 'all'],
+                        description: 'open=PO yang belum selesai (OPEN/PARTIAL), overdue=PO lewat tanggal kirim, all=semua PO 50 terakhir. Default open.',
+                    },
+                },
+                required: [],
+            },
+        },
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'get_dead_stock',
+            description: 'Ambil produk dead stock — stok masih ada tapi tidak ada penjualan dalam N hari. Gunakan untuk "barang nggak laku", "dead stock", "stok mandek".',
+            parameters: {
+                type: 'object',
+                properties: {
+                    days: { type: 'number', description: 'Jumlah hari ke belakang untuk cek penjualan (default 30).' },
+                    limit: { type: 'number', description: 'Jumlah produk yang ditampilkan (default 25).' },
+                },
+                required: [],
+            },
+        },
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'get_geo_analysis',
+            description: 'Ambil top kota/provinsi berdasarkan jumlah order dan omzet. Gunakan untuk "kota mana paling banyak order", "provinsi terbanyak", "geographic distribution".',
+            parameters: {
+                type: 'object',
+                properties: {
+                    period: {
+                        type: 'string',
+                        enum: ['today', 'yesterday', 'week', 'month'],
+                        description: 'Periode preset. Default week.',
+                    },
+                    start_date: { type: 'string', description: 'Tanggal mulai YYYY-MM-DD (WIB).' },
+                    end_date: { type: 'string', description: 'Tanggal akhir YYYY-MM-DD (WIB).' },
+                    limit: { type: 'number', description: 'Jumlah top kota/provinsi (default 10).' },
+                },
+                required: [],
+            },
+        },
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'get_customer_analysis',
+            description: 'Analisis customer — top buyer, repeat buyer, new vs returning. Gunakan untuk "customer terloyal", "repeat buyer", "berapa customer baru".',
+            parameters: {
+                type: 'object',
+                properties: {
+                    period: {
+                        type: 'string',
+                        enum: ['today', 'yesterday', 'week', 'month'],
+                        description: 'Periode preset. Default month.',
+                    },
+                    start_date: { type: 'string', description: 'Tanggal mulai YYYY-MM-DD (WIB).' },
+                    end_date: { type: 'string', description: 'Tanggal akhir YYYY-MM-DD (WIB).' },
+                    limit: { type: 'number', description: 'Jumlah top buyer (default 15).' },
+                },
+                required: [],
+            },
+        },
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'get_scan_fulfillment',
+            description: 'Ambil progress scan & fulfillment — order ter-scan vs total, average fulfillment time, scan progress hari ini per operator. Gunakan untuk "fulfillment", "scan progress", "berapa order belum di-scan", "kecepatan packing".',
+            parameters: {
+                type: 'object',
+                properties: {
+                    period: {
+                        type: 'string',
+                        enum: ['today', 'yesterday', 'week', 'month'],
+                        description: 'Periode preset. Default today.',
+                    },
+                    start_date: { type: 'string', description: 'Tanggal mulai YYYY-MM-DD (WIB).' },
+                    end_date: { type: 'string', description: 'Tanggal akhir YYYY-MM-DD (WIB).' },
+                },
+                required: [],
+            },
+        },
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'get_period_comparison',
+            description: 'Bandingkan dua periode (current vs previous) — order, omzet, profit dan growth %. Gunakan untuk "bulan ini vs bulan lalu", "minggu ini vs minggu lalu", "tahun ini vs tahun lalu".',
+            parameters: {
+                type: 'object',
+                properties: {
+                    current_start: { type: 'string', description: 'Tanggal mulai periode saat ini YYYY-MM-DD.' },
+                    current_end: { type: 'string', description: 'Tanggal akhir periode saat ini YYYY-MM-DD.' },
+                    previous_start: { type: 'string', description: 'Tanggal mulai periode pembanding YYYY-MM-DD.' },
+                    previous_end: { type: 'string', description: 'Tanggal akhir periode pembanding YYYY-MM-DD.' },
+                },
+                required: ['current_start', 'current_end', 'previous_start', 'previous_end'],
+            },
+        },
+    },
 ]
 
 // ─────────────────────────────────────────────
@@ -226,6 +404,36 @@ async function executeTool(name: string, args: Record<string, any>): Promise<str
                 break
             case 'get_platform_breakdown':
                 result = await getPlatformBreakdown(args.period, args.start_date, args.end_date)
+                break
+            case 'get_wallet_summary':
+                result = await getWalletSummary()
+                break
+            case 'get_expense_breakdown':
+                result = await getExpenseBreakdown(args.period, args.start_date, args.end_date)
+                break
+            case 'get_payout_summary':
+                result = await getPayoutSummary(args.period, args.start_date, args.end_date)
+                break
+            case 'get_utang_piutang_summary':
+                result = await getUtangPiutangSummary()
+                break
+            case 'get_purchase_order_status':
+                result = await getPurchaseOrderStatus(args.filter || 'open')
+                break
+            case 'get_dead_stock':
+                result = await getDeadStock(args.days, args.limit)
+                break
+            case 'get_geo_analysis':
+                result = await getGeoAnalysis(args.period, args.start_date, args.end_date, args.limit)
+                break
+            case 'get_customer_analysis':
+                result = await getCustomerAnalysis(args.period, args.start_date, args.end_date, args.limit)
+                break
+            case 'get_scan_fulfillment':
+                result = await getScanFulfillment(args.period, args.start_date, args.end_date)
+                break
+            case 'get_period_comparison':
+                result = await getPeriodComparison(args.current_start, args.current_end, args.previous_start, args.previous_end)
                 break
             default:
                 return JSON.stringify({ error: `Tool tidak dikenal: ${name}` })
