@@ -15,6 +15,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { processWithAI } from '@/lib/telegram-ai'
 import { buildDailyReport } from '@/lib/daily-report'
+import { buildWeeklyReport } from '@/lib/weekly-report'
+import { buildMonthlyReport } from '@/lib/monthly-report'
+import { isQuickCommand, renderQuickCommand } from '@/lib/quick-commands'
 
 // Chat ID yang diizinkan (owner + group IDs, comma-separated)
 const OWNER_CHAT_ID = process.env.TELEGRAM_OWNER_CHAT_ID || '565228988'
@@ -138,6 +141,8 @@ function getHelpText(): string {
 
 <b>📑 Laporan:</b>
 /laporan — Laporan harian lengkap
+/laporanmingguan — Recap minggu lalu (Senin–Minggu) vs minggu sebelumnya
+/laporanbulanan — Recap bulan lalu vs bulan sebelumnya
 
 <b>Atau tanya bebas, contoh:</b>
 • "produk apa yang paling laku minggu ini?"
@@ -159,29 +164,6 @@ async function processMessage(chatId: number, text: string, threadId?: number) {
     try {
         let reply = ''
 
-        // Quick commands → langsung ke AI dengan prompt yang sudah terdefinisi
-        const commandMap: Record<string, string> = {
-            '/top10': 'ranking produk terlaris 10 besar minggu ini (7 hari terakhir)',
-            '/top10hari': 'ranking produk terlaris 10 besar hari ini',
-            '/omzet': 'ringkasan omzet dan profit hari ini',
-            '/omzetminggu': 'ringkasan omzet dan profit 7 hari terakhir',
-            '/omzetbulan': 'ringkasan omzet dan profit bulan ini',
-            '/stok': 'daftar produk yang stok kritis (di bawah ROP), tampilkan maksimal 15',
-            '/stokhabil': 'daftar produk yang stok sudah habis (0 atau minus)',
-            '/order': 'ringkasan order hari ini',
-            '/orderminggu': 'ringkasan order 7 hari terakhir',
-            '/platform': 'breakdown penjualan per platform 7 hari terakhir',
-            '/platformhari': 'breakdown penjualan per platform hari ini',
-            '/saldo': 'ringkasan saldo semua wallet dan posisi kas',
-            '/pengeluaran': 'breakdown pengeluaran per kategori bulan ini',
-            '/utang': 'ringkasan utang dan piutang outstanding',
-            '/po': 'status purchase order yang masih open',
-            '/deadstock': 'produk dead stock (stok tinggi tapi tidak ada penjualan 30 hari)',
-            '/kota': 'top 10 kota dengan order terbanyak 7 hari terakhir',
-            '/customer': 'analisis customer dan repeat buyer 30 hari terakhir',
-            '/fulfillment': 'progress scan dan fulfillment hari ini',
-        }
-
         if (cmd === '/start') {
             reply = `👋 Halo! Saya <b>Elyasr AI Assistant</b>.\n\nKirim /help untuk lihat daftar perintah, atau tanya langsung dengan bahasa bebas!\n\nContoh: "produk apa yang paling laku minggu ini?"`
         } else if (cmd === '/help') {
@@ -191,14 +173,24 @@ async function processMessage(chatId: number, text: string, threadId?: number) {
             const laporan = await buildDailyReport()
             await sendReply(chatId, laporan, threadId)
             return
-        } else if (commandMap[cmd]) {
-            // Command yang butuh AI + tools
-            reply = await processWithAI(commandMap[cmd])
+        } else if (cmd === '/laporanmingguan' || cmd === '/laporanminggu') {
+            await sendReply(chatId, '⏳ Menyiapkan laporan mingguan...', threadId)
+            const laporan = await buildWeeklyReport()
+            await sendReply(chatId, laporan, threadId)
+            return
+        } else if (cmd === '/laporanbulanan' || cmd === '/laporanbulan') {
+            await sendReply(chatId, '⏳ Menyiapkan laporan bulanan...', threadId)
+            const laporan = await buildMonthlyReport()
+            await sendReply(chatId, laporan, threadId)
+            return
+        } else if (isQuickCommand(cmd)) {
+            // Quick command → render langsung dari SQL, tanpa AI (0 token)
+            reply = await renderQuickCommand(cmd)
         } else if (text.startsWith('/')) {
             // Unknown command
             reply = `❓ Perintah tidak dikenal. Kirim /help untuk lihat daftar perintah.`
         } else {
-            // Natural language → AI
+            // Natural language → AI (Adye API)
             reply = await processWithAI(text)
         }
 

@@ -484,6 +484,11 @@ export async function processWithAI(userMessage: string): Promise<string> {
         { role: 'user', content: userMessage },
     ]
 
+    // Token usage tracker — accumulate across iterations
+    let totalIn = 0
+    let totalOut = 0
+    const t0 = Date.now()
+
     // Agentic loop — max 5 iterasi untuk menghindari infinite loop
     for (let iter = 0; iter < 5; iter++) {
         let res: Response
@@ -542,7 +547,13 @@ export async function processWithAI(userMessage: string): Promise<string> {
             return '❌ Respons AI tidak valid (no choices). Coba lagi nanti.'
         }
 
-        console.log(`[telegram-ai] Iter ${iter}: finish_reason=${choice.finish_reason}, has_tool_calls=${!!choice.message?.tool_calls?.length}`)
+        // Akumulasi token usage (jika API ngembaliin field usage)
+        if (data.usage) {
+            totalIn += data.usage.prompt_tokens || 0
+            totalOut += data.usage.completion_tokens || 0
+        }
+
+        console.log(`[telegram-ai] Iter ${iter}: finish_reason=${choice.finish_reason}, tool_calls=${!!choice.message?.tool_calls?.length}, tokens=${data.usage?.prompt_tokens || '?'}+${data.usage?.completion_tokens || '?'}`)
 
         // AI mau panggil tool — cek ini DULU sebelum cek finish_reason
         if (choice.message?.tool_calls?.length) {
@@ -568,7 +579,9 @@ export async function processWithAI(userMessage: string): Promise<string> {
         }
 
         // AI selesai — kembalikan respons teks
-        // Support berbagai finish_reason: stop, end_turn, length, dll
+        const elapsed = Date.now() - t0
+        console.log(`[telegram-ai] DONE in ${elapsed}ms | total tokens: in=${totalIn}, out=${totalOut}, sum=${totalIn + totalOut}`)
+
         if (choice.message?.content) {
             return choice.message.content
         }
@@ -583,5 +596,6 @@ export async function processWithAI(userMessage: string): Promise<string> {
         break
     }
 
+    console.log(`[telegram-ai] LOOP EXIT | total tokens: in=${totalIn}, out=${totalOut}`)
     return '⚠️ AI tidak dapat menyelesaikan permintaan. Coba pertanyaan yang lebih spesifik.'
 }
