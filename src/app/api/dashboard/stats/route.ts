@@ -32,6 +32,15 @@ export async function GET(request: NextRequest) {
   const gteDate = dateFrom ? new Date(dateFrom + 'T00:00:00+07:00') : null
   const lteDate = dateTo   ? new Date(dateTo   + 'T23:59:59+07:00') : null
 
+  // Periode pembanding (panjang sama, mundur ke belakang) untuk delta KPI
+  let prevGte: Date | null = null
+  let prevLte: Date | null = null
+  if (gteDate && lteDate) {
+    const lengthMs = lteDate.getTime() - gteDate.getTime()
+    prevLte = new Date(gteDate.getTime() - 1) // detik sebelum periode ini
+    prevGte = new Date(prevLte.getTime() - lengthMs)
+  }
+
   // ── 1. Semua query dalam 1 Promise.all ──────────────
   const [
     orderStats,
@@ -44,6 +53,14 @@ export async function GET(request: NextRequest) {
     topCities,
     omzetByPlatform,
     marketingCosts,
+    operatingExpense,
+    prevPeriodStats,
+    prevPlatformOmzet,
+    prevMarketingCosts,
+    prevOpEx,
+    dailyTrend,
+    utangOutstanding,
+    piutangOutstanding,
   ] = await Promise.all([  // omzetByPlatform sekarang raw SQL (hpp*qty)
 
     // Count orders per status group — gunakan trx_date untuk filter
@@ -225,6 +242,117 @@ export async function GET(request: NextRequest) {
             AND l.trx_type = 'EXPENSE'
           GROUP BY w.linked_platform
         `,
+
+    // Operating Expense (semua expense non-ads dalam periode)
+    gteDate && lteDate
+      ? prisma.$queryRaw<{ total: bigint }[]>`
+          SELECT COALESCE(SUM(ABS(l.amount)), 0)::bigint AS total
+          FROM wallet_ledger l
+          JOIN wallets w ON w.id = l.wallet_id
+          WHERE l.trx_type = 'EXPENSE'
+            AND COALESCE(w.is_ads_budget, false) = false
+            AND l.trx_date >= ${gteDate} AND l.trx_date <= ${lteDate}
+        `
+      : prisma.$queryRaw<{ total: bigint }[]>`
+          SELECT COALESCE(SUM(ABS(l.amount)), 0)::bigint AS total
+          FROM wallet_ledger l
+          JOIN wallets w ON w.id = l.wallet_id
+          WHERE l.trx_type = 'EXPENSE'
+            AND COALESCE(w.is_ads_budget, false) = false
+        `,
+
+    // ── PERIODE PEMBANDING (delta KPI) ──
+    prevGte && prevLte
+      ? prisma.$queryRaw<{ group_key: string; cnt: bigint; total_omzet: bigint }[]>`
+          SELECT
+            CASE
+              WHEN status ILIKE '%batal%' OR status ILIKE '%cancel%' OR status ILIKE '%dibatalkan%' THEN 'batal'
+              ELSE 'valid'
+            END AS group_key,
+            COUNT(*) AS cnt,
+            COALESCE(SUM(real_omzet), 0) AS total_omzet
+          FROM orders
+          WHERE trx_date >= ${prevGte} AND trx_date <= ${prevLte}
+          GROUP BY group_key
+        `
+      : Promise.resolve([] as { group_key: string; cnt: bigint; total_omzet: bigint }[]),
+
+    prevGte && prevLte
+      ? prisma.$queryRaw<{ total_omzet: bigint; total_hpp: bigint }[]>`
+          SELECT
+            COALESCE(SUM(real_omzet), 0) AS total_omzet,
+            COALESCE(SUM(hpp * qty), 0) AS total_hpp
+          FROM orders
+          WHERE trx_date >= ${prevGte} AND trx_date <= ${prevLte}
+            AND status NOT ILIKE '%batal%'
+            AND status NOT ILIKE '%cancel%'
+            AND status NOT ILIKE '%dibatalkan%'
+        `
+      : Promise.resolve([] as { total_omzet: bigint; total_hpp: bigint }[]),
+
+    prevGte && prevLte
+      ? prisma.$queryRaw<{ total: bigint }[]>`
+          SELECT COALESCE(SUM(ABS(l.amount)), 0)::bigint AS total
+          FROM wallet_ledger l
+          JOIN wallets w ON w.id = l.wallet_id
+          WHERE w.is_ads_budget = true
+            AND l.trx_type = 'EXPENSE'
+            AND l.trx_date >= ${prevGte} AND l.trx_date <= ${prevLte}
+        `
+      : Promise.resolve([] as { total: bigint }[]),
+
+    prevGte && prevLte
+      ? prisma.$queryRaw<{ total: bigint }[]>`
+          SELECT COALESCE(SUM(ABS(l.amount)), 0)::bigint AS total
+          FROM wallet_ledger l
+          JOIN wallets w ON w.id = l.wallet_id
+          WHERE l.trx_type = 'EXPENSE'
+            AND COALESCE(w.is_ads_budget, false) = false
+            AND l.trx_date >= ${prevGte} AND l.trx_date <= ${prevLte}
+        `
+      : Promise.resolve([] as { total: bigint }[]),
+
+    // ── DAILY TREND (omzet, profit, order count per hari) ──
+    gteDate && lteDate
+      ? prisma.$queryRaw<{
+          day: string
+          omzet: bigint
+          hpp: bigint
+          orders_valid: bigint
+          orders_batal: bigint
+        }[]>`
+          SELECT
+            TO_CHAR((trx_date AT TIME ZONE 'Asia/Jakarta')::date, 'YYYY-MM-DD') AS day,
+            COALESCE(SUM(CASE WHEN status NOT ILIKE '%batal%' AND status NOT ILIKE '%cancel%' AND status NOT ILIKE '%dibatalkan%' THEN real_omzet ELSE 0 END), 0) AS omzet,
+            COALESCE(SUM(CASE WHEN status NOT ILIKE '%batal%' AND status NOT ILIKE '%cancel%' AND status NOT ILIKE '%dibatalkan%' THEN hpp * qty ELSE 0 END), 0) AS hpp,
+            COALESCE(SUM(CASE WHEN status NOT ILIKE '%batal%' AND status NOT ILIKE '%cancel%' AND status NOT ILIKE '%dibatalkan%' THEN 1 ELSE 0 END), 0) AS orders_valid,
+            COALESCE(SUM(CASE WHEN status ILIKE '%batal%' OR status ILIKE '%cancel%' OR status ILIKE '%dibatalkan%' THEN 1 ELSE 0 END), 0) AS orders_batal
+          FROM orders
+          WHERE trx_date >= ${gteDate} AND trx_date <= ${lteDate}
+          GROUP BY day
+          ORDER BY day
+        `
+      : Promise.resolve([] as { day: string; omzet: bigint; hpp: bigint; orders_valid: bigint; orders_batal: bigint }[]),
+
+    // Outstanding utang (semua, bukan filter periode)
+    prisma.$queryRaw<{ cnt: bigint; total: bigint; overdue: bigint }[]>`
+      SELECT
+        COUNT(*) AS cnt,
+        COALESCE(SUM(amount - amount_paid), 0) AS total,
+        COALESCE(SUM(CASE WHEN due_date IS NOT NULL AND due_date < NOW() THEN (amount - amount_paid) ELSE 0 END), 0) AS overdue
+      FROM utangs
+      WHERE status IN ('OUTSTANDING', 'PARTIAL')
+    `,
+
+    // Outstanding piutang
+    prisma.$queryRaw<{ cnt: bigint; total: bigint; overdue: bigint }[]>`
+      SELECT
+        COUNT(*) AS cnt,
+        COALESCE(SUM(amount - amount_collected), 0) AS total,
+        COALESCE(SUM(CASE WHEN due_date IS NOT NULL AND due_date < NOW() THEN (amount - amount_collected) ELSE 0 END), 0) AS overdue
+      FROM piutangs
+      WHERE status IN ('OUTSTANDING', 'PARTIAL')
+    `,
   ])
 
   // ── Format hasil ───────────────────────────────────
@@ -247,14 +375,88 @@ export async function GET(request: NextRequest) {
   // Total saldo
   const totalSaldo = (walletBalances as any[]).reduce((s, w) => s + Number(w.balance), 0)
 
+  // Hitung total omzet, HPP, ads, opEx untuk Net Profit
+  const totalOmzet = (omzetByPlatform as any[]).reduce((s, p) => s + Number(p.total_omzet), 0)
+  const totalHpp = (omzetByPlatform as any[]).reduce((s, p) => s + Number(p.total_hpp), 0)
+  const totalAdSpend = (marketingCosts as any[]).reduce((s, r) => s + Number(r.ad_spend), 0)
+  const totalOpEx = Number((operatingExpense as any[])[0]?.total ?? 0)
+  const grossProfit = totalOmzet - totalHpp
+  const netProfit = grossProfit - totalAdSpend - totalOpEx
+
+  // Order metrics
+  const validOrders = (statsMap['terkirim']?.count ?? 0) + (statsMap['perlu_dikirim']?.count ?? 0)
+  const cancelOrders = statsMap['batal']?.count ?? 0
+  const totalOrders = validOrders + cancelOrders
+  const aov = validOrders > 0 ? Math.round(totalOmzet / validOrders) : 0
+  const cancelRate = totalOrders > 0 ? (cancelOrders / totalOrders) * 100 : 0
+
+  // Periode pembanding — untuk delta KPI
+  const prevStatsMap = Object.fromEntries(
+    (prevPeriodStats as any[]).map((r: any) => [
+      r.group_key,
+      { count: Number(r.cnt), omzet: Number(r.total_omzet) }
+    ])
+  )
+  const prevValidOrders = prevStatsMap['valid']?.count ?? 0
+  const prevCancelOrders = prevStatsMap['batal']?.count ?? 0
+  const prevTotalOrders = prevValidOrders + prevCancelOrders
+  const prevPlatform = (prevPlatformOmzet as any[])[0] ?? { total_omzet: 0, total_hpp: 0 }
+  const prevOmzet = Number(prevPlatform.total_omzet ?? 0)
+  const prevHpp = Number(prevPlatform.total_hpp ?? 0)
+  const prevAds = Number((prevMarketingCosts as any[])[0]?.total ?? 0)
+  const prevOpExVal = Number((prevOpEx as any[])[0]?.total ?? 0)
+  const prevGrossProfit = prevOmzet - prevHpp
+  const prevNetProfit = prevGrossProfit - prevAds - prevOpExVal
+  const prevAov = prevValidOrders > 0 ? Math.round(prevOmzet / prevValidOrders) : 0
+  const prevCancelRate = prevTotalOrders > 0 ? (prevCancelOrders / prevTotalOrders) * 100 : 0
+
+  const pctChange = (cur: number, prev: number): number | null => {
+    if (prev === 0) return cur === 0 ? 0 : null
+    return ((cur - prev) / Math.abs(prev)) * 100
+  }
+
+  // Daily trend — pastikan tidak ada hari yang hilang (fill 0 untuk hari kosong)
+  const trendMap = new Map(
+    (dailyTrend as any[]).map((r: any) => [r.day, {
+      omzet: Number(r.omzet),
+      hpp: Number(r.hpp),
+      ordersValid: Number(r.orders_valid),
+      ordersBatal: Number(r.orders_batal),
+    }])
+  )
+  const trend: any[] = []
+  if (gteDate && lteDate) {
+    const cur = new Date(gteDate)
+    const end = new Date(lteDate)
+    while (cur <= end) {
+      const dayStr = cur.toLocaleDateString('en-CA', { timeZone: 'Asia/Jakarta' })
+      const v = trendMap.get(dayStr) ?? { omzet: 0, hpp: 0, ordersValid: 0, ordersBatal: 0 }
+      trend.push({
+        day: dayStr,
+        omzet: v.omzet,
+        grossProfit: v.omzet - v.hpp,
+        ordersValid: v.ordersValid,
+        ordersBatal: v.ordersBatal,
+      })
+      cur.setDate(cur.getDate() + 1)
+    }
+  }
+
+  // Utang & Piutang summary
+  const utangRow = (utangOutstanding as any[])[0] ?? { cnt: 0, total: 0, overdue: 0 }
+  const piutangRow = (piutangOutstanding as any[])[0] ?? { cnt: 0, total: 0, overdue: 0 }
+
   return apiSuccess({
     dateFrom,
     dateTo,
     orders: {
       perluDikirim: statsMap['perlu_dikirim']?.count ?? 0,
       terkirim: statsMap['terkirim']?.count ?? 0,
-      batal: statsMap['batal']?.count ?? 0,
-      total: Object.values(statsMap).reduce((s: number, v: any) => s + v.count, 0),
+      batal: cancelOrders,
+      total: totalOrders,
+      valid: validOrders,
+      aov,
+      cancelRate, // 0..100
     },
     omzet: {
       byPlatform: (omzetByPlatform as any[]).map(p => {
@@ -281,10 +483,35 @@ export async function GET(request: NextRequest) {
           roas: adSpend > 0 ? (omzet / adSpend).toFixed(1) : '0',
         }
       }),
-      total:        (omzetByPlatform as any[]).reduce((s, p) => s + Number(p.total_omzet), 0),
-      totalHpp:     (omzetByPlatform as any[]).reduce((s, p) => s + Number(p.total_hpp), 0),
-      totalAdSpend: (marketingCosts as any[]).reduce((s, r) => s + Number(r.ad_spend), 0),
+      total:        totalOmzet,
+      totalHpp:     totalHpp,
+      totalAdSpend: totalAdSpend,
+      totalOpEx:    totalOpEx,
+      grossProfit,
+      netProfit,
+      netMargin: totalOmzet > 0 ? (netProfit / totalOmzet) * 100 : 0,
     },
+    delta: {
+      omzet:       pctChange(totalOmzet, prevOmzet),
+      grossProfit: pctChange(grossProfit, prevGrossProfit),
+      netProfit:   pctChange(netProfit, prevNetProfit),
+      validOrders: pctChange(validOrders, prevValidOrders),
+      aov:         pctChange(aov, prevAov),
+      cancelRate:  pctChange(cancelRate, prevCancelRate), // delta absolut akan di-handle di UI
+      adSpend:     pctChange(totalAdSpend, prevAds),
+      opEx:        pctChange(totalOpEx, prevOpExVal),
+    },
+    prev: {
+      omzet: prevOmzet,
+      grossProfit: prevGrossProfit,
+      netProfit: prevNetProfit,
+      validOrders: prevValidOrders,
+      aov: prevAov,
+      cancelRate: prevCancelRate,
+      adSpend: prevAds,
+      opEx: prevOpExVal,
+    },
+    trend,
     aging,
     wallet: {
       wallets: (walletBalances as any[]).map(w => ({
@@ -298,6 +525,18 @@ export async function GET(request: NextRequest) {
       count: payoutStats._count.id,
       totalIncome: payoutStats._sum.totalIncome ?? 0,
       totalOmzet: payoutStats._sum.omzet ?? 0,
+    },
+    receivable: {
+      utang: {
+        count: Number(utangRow.cnt),
+        total: Number(utangRow.total),
+        overdue: Number(utangRow.overdue),
+      },
+      piutang: {
+        count: Number(piutangRow.cnt),
+        total: Number(piutangRow.total),
+        overdue: Number(piutangRow.overdue),
+      },
     },
     stock: {
       lowStockCount: Number((lowStockCount as any[])[0]?.cnt ?? 0),

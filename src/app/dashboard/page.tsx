@@ -3,12 +3,26 @@
 import { AppLayout } from '@/components/layout/app-layout'
 import { useAuth, usePermission } from '@/components/providers'
 import { useQuery } from '@tanstack/react-query'
-import { formatRupiah, formatDate } from '@/lib/utils'
-import { useState, useEffect } from 'react'
+import { formatRupiah } from '@/lib/utils'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import {
-  TrendingUp, Package, ShoppingCart, AlertTriangle,
-  Wallet, Clock, ArrowUpRight, RefreshCw, Calendar
+  TrendingUp, ShoppingCart, AlertTriangle,
+  Wallet, Clock, ArrowUpRight, RefreshCw, Calendar, DollarSign,
+  ArrowDownRight, Banknote, FileWarning, Target,
+  Maximize2, Minimize2,
 } from 'lucide-react'
+
+// ── Section components ──────────────────────────────────
+import { ActionCenter } from './_components/action-center'
+import { HeroScoreboard } from './_components/hero-scoreboard'
+import { KpiCard } from './_components/kpi-card'
+import { TrendChart, OrderTrendChart } from './_components/charts'
+import { ProfitabilitySection } from './_components/profitability-section'
+import { CashflowSection } from './_components/cashflow-section'
+import { ArApSection } from './_components/ar-ap-section'
+import { InventoryHealthSection } from './_components/inventory-health-section'
+import { OperationsSection } from './_components/operations-section'
+import { SectionHeader } from './_components/section-header'
 
 // ── Date helpers ───────────────────────────────────────
 function getDefaultRange() {
@@ -20,104 +34,23 @@ function getDefaultRange() {
   }
 }
 
-// ── Stat card ──────────────────────────────────────────
-function StatCard({ label, value, sub, icon: Icon, color = 'emerald' }: {
-  label: string; value: string; sub?: string
-  icon: React.ElementType; color?: string
-}) {
-  const colors: Record<string, string> = {
-    emerald: 'text-emerald-400 bg-emerald-900/20 border-emerald-800/40',
-    yellow:  'text-yellow-400 bg-yellow-900/20 border-yellow-800/40',
-    red:     'text-red-400 bg-red-900/20 border-red-800/40',
-    blue:    'text-blue-400 bg-blue-900/20 border-blue-800/40',
-    purple:  'text-purple-400 bg-purple-900/20 border-purple-800/40',
-  }
-  return (
-    <div className="stat-card">
-      <div className="flex items-start justify-between gap-2">
-        <div className="min-w-0">
-          <p className="text-zinc-500 text-xs mb-1">{label}</p>
-          <p className="text-xl font-bold text-white truncate">{value}</p>
-          {sub && <p className="text-zinc-600 text-[10px] mt-0.5">{sub}</p>}
-        </div>
-        <div className={`p-2 rounded-lg border shrink-0 ${colors[color]}`}>
-          <Icon size={16} />
-        </div>
-      </div>
-    </div>
-  )
-}
+// ── View mode toggle ────────────────────────────────────
+type ViewMode = 'full' | 'compact'
+const VIEW_STORAGE_KEY = 'dash.viewMode'
 
-// ── Aging backlog visual ───────────────────────────────
-function AgingBars({ aging }: { aging: { label: string; count: number }[] }) {
-  const max = Math.max(...aging.map(a => a.count), 1)
-  const colors = ['bg-emerald-500', 'bg-yellow-500', 'bg-orange-500', 'bg-red-500']
-  return (
-    <div className="space-y-2">
-      {aging.map((a, i) => (
-        <div key={a.label} className="flex items-center gap-3">
-          <span className="text-xs text-zinc-500 w-16 shrink-0">{a.label}</span>
-          <div className="flex-1 bg-zinc-800 rounded-full h-2">
-            <div
-              className={`h-2 rounded-full transition-all ${colors[i]}`}
-              style={{ width: `${(a.count / max) * 100}%` }}
-            />
-          </div>
-          <span className={`text-sm font-bold w-8 text-right ${
-            i === 3 ? 'text-red-400' : i === 2 ? 'text-orange-400' : 'text-zinc-300'
-          }`}>{a.count}</span>
-        </div>
-      ))}
-    </div>
-  )
-}
-
-// ── Platform omzet breakdown ───────────────────────────
-function PlatformBreakdown({ data, showGp = true }: { data: any[]; showGp?: boolean }) {
-  if (!data?.length) return <p className="text-zinc-600 text-sm">Belum ada data</p>
-  const total = data.reduce((s, p) => s + p.realOmzet, 0)
-  return (
-    <div className="space-y-2.5">
-      {data.map((p: any) => (
-        <div key={p.platform}>
-          <div className="flex items-center justify-between mb-1">
-            <div className="flex items-center gap-2">
-              <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${
-                p.platform === 'TikTok' ? 'bg-pink-900/40 text-pink-400' :
-                p.platform === 'Shopee' ? 'bg-orange-900/40 text-orange-400' :
-                'bg-zinc-800 text-zinc-400'
-              }`}>{p.platform}</span>
-              <span className="text-xs text-zinc-500">{p.count} order</span>
-            </div>
-            <div className="text-right">
-              <p className="text-xs font-medium text-white">{formatRupiah(p.realOmzet, true)}</p>
-              {showGp && (
-                <div className="flex flex-col items-end">
-                  <p className="text-[10px] text-emerald-600">
-                    GP: {formatRupiah(p.grossProfit, true)}
-                  </p>
-                  {p.adSpend > 0 && (
-                    <p className="text-[10px] text-orange-400">
-                      Ads: {formatRupiah(p.adSpend, true)} (ROAS: {p.roas})
-                    </p>
-                  )}
-                </div>
-              )}
-            </div>
-          </div>
-          <div className="bg-zinc-800 rounded-full h-1.5">
-            <div
-              className={`h-1.5 rounded-full ${
-                p.platform === 'TikTok' ? 'bg-pink-500' :
-                p.platform === 'Shopee' ? 'bg-orange-500' : 'bg-emerald-500'
-              }`}
-              style={{ width: total > 0 ? `${(p.realOmzet / total) * 100}%` : '0%' }}
-            />
-          </div>
-        </div>
-      ))}
-    </div>
-  )
+function useViewMode(): [ViewMode, () => void] {
+  const [mode, setMode] = useState<ViewMode>(() => {
+    if (typeof window === 'undefined') return 'full'
+    return (localStorage.getItem(VIEW_STORAGE_KEY) as ViewMode) || 'full'
+  })
+  const toggle = useCallback(() => {
+    setMode((prev) => {
+      const next = prev === 'full' ? 'compact' : 'full'
+      localStorage.setItem(VIEW_STORAGE_KEY, next)
+      return next
+    })
+  }, [])
+  return [mode, toggle]
 }
 
 // ── Main Dashboard ─────────────────────────────────────
@@ -125,10 +58,14 @@ export default function DashboardPage() {
   const { user } = useAuth()
   const { canEdit } = usePermission()
   const isStaffOnly = user?.userRole === 'STAFF'
+  const isOwnerOrFinance = canEdit // OWNER or FINANCE
   const defaultRange = getDefaultRange()
   const [dateFrom, setDateFrom] = useState(defaultRange.from)
   const [dateTo, setDateTo] = useState(defaultRange.to)
+  const [viewMode, toggleViewMode] = useViewMode()
+  const isCompact = viewMode === 'compact'
 
+  // ── Main stats query (KPI + trend + operational) ──────
   const { data, isLoading, refetch } = useQuery({
     queryKey: ['dashboard-stats', dateFrom, dateTo],
     queryFn: async () => {
@@ -136,12 +73,25 @@ export default function DashboardPage() {
       const res = await fetch(`/api/dashboard/stats?${params}`)
       return res.json().then(d => d.data)
     },
-    staleTime: 60_000, // 1 menit cache
+    staleTime: 60_000,
+    placeholderData: (prev: any) => prev,
+    refetchOnWindowFocus: false,
   })
 
-  const totalAgingBacklog = data?.aging?.reduce((s: number, a: any) => s + a.count, 0) ?? 0
+  // ── Sparklines query (14-day mini series for KPI cards) ──
+  const { data: sparkData } = useQuery({
+    queryKey: ['dashboard', 'sparklines'],
+    queryFn: async () => {
+      const res = await fetch('/api/dashboard/sparklines', { cache: 'no-store' })
+      const json = await res.json()
+      if (!res.ok || !json.success) return null
+      return json.data
+    },
+    staleTime: 120_000,
+    refetchOnWindowFocus: false,
+  })
 
-  // Auto backfill HPP di background — sekali per session
+  // ── Auto backfill HPP (once per session) ──────────────
   useEffect(() => {
     const SESS_KEY = 'hpp_backfill_done'
     if (sessionStorage.getItem(SESS_KEY)) return
@@ -150,16 +100,16 @@ export default function DashboardPage() {
       .then(json => {
         if (json?.data?.updated > 0) {
           sessionStorage.setItem(SESS_KEY, '1')
-          refetch() // refresh dashboard setelah HPP diperbarui
+          refetch()
         } else {
           sessionStorage.setItem(SESS_KEY, '1')
         }
       })
-      .catch(() => {}) // silent fail
+      .catch(() => {})
   }, [refetch])
 
-  // Quick range presets
-  const setRange = (preset: string) => {
+  // ── Quick range presets ────────────────────────────────
+  const setRange = useCallback((preset: string) => {
     const now = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Jakarta' }))
     const today = now.toISOString().slice(0, 10)
     if (preset === 'today') {
@@ -179,11 +129,32 @@ export default function DashboardPage() {
       const last  = new Date(now.getFullYear(), now.getMonth(), 0)
       setDateFrom(first.toISOString().slice(0, 10)); setDateTo(last.toISOString().slice(0, 10))
     }
-  }
+  }, [])
+
+  // ── Derived values ────────────────────────────────────
+  const cancelRateDelta = data?.orders?.cancelRate !== undefined && data?.prev?.cancelRate !== undefined
+    ? data.orders.cancelRate - data.prev.cancelRate
+    : null
+
+  const rangeLabel = `${dateFrom} – ${dateTo}`
+
+  // Sparkline series helpers
+  const spark = useMemo(() => {
+    if (!sparkData?.series) return {}
+    const s = sparkData.series as { day: string; omzet: number; gp: number; net: number; aov: number; orders: number; marginPct: number }[]
+    return {
+      omzet: s.map(d => d.omzet),
+      gp: s.map(d => d.gp),
+      net: s.map(d => d.net),
+      aov: s.map(d => d.aov),
+      orders: s.map(d => d.orders),
+      margin: s.map(d => d.marginPct),
+    }
+  }, [sparkData])
 
   return (
     <AppLayout>
-      {/* Header */}
+      {/* ─── Header ─── */}
       <div className="page-header">
         <div>
           <h1 className="page-title">Dashboard</h1>
@@ -191,12 +162,26 @@ export default function DashboardPage() {
             Selamat datang, {user?.fullName || user?.username}
           </p>
         </div>
-        <button onClick={() => refetch()} className="p-2 bg-zinc-900 border border-zinc-800 rounded-lg text-zinc-500 hover:text-zinc-300 transition-colors">
-          <RefreshCw size={14} className={isLoading ? 'animate-spin' : ''} />
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={toggleViewMode}
+            className="p-2 bg-zinc-900 border border-zinc-800 rounded-lg text-zinc-500 hover:text-zinc-300 transition-colors"
+            title={isCompact ? 'Tampilan penuh' : 'Tampilan ringkas'}
+            aria-label={isCompact ? 'Switch to full view' : 'Switch to compact view'}
+          >
+            {isCompact ? <Maximize2 size={14} /> : <Minimize2 size={14} />}
+          </button>
+          <button
+            onClick={() => refetch()}
+            className="p-2 bg-zinc-900 border border-zinc-800 rounded-lg text-zinc-500 hover:text-zinc-300 transition-colors"
+            aria-label="Refresh dashboard"
+          >
+            <RefreshCw size={14} className={isLoading ? 'animate-spin' : ''} />
+          </button>
+        </div>
       </div>
 
-      {/* Date range filter */}
+      {/* ─── Date range filter ─── */}
       <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-3 mb-6 flex flex-wrap items-center gap-3">
         <Calendar size={14} className="text-zinc-500 shrink-0" />
         <div className="flex items-center gap-2">
@@ -232,196 +217,267 @@ export default function DashboardPage() {
           ))}
         </div>
         {isLoading && <span className="text-[10px] text-zinc-600 animate-pulse">Memuat...</span>}
+        <span className="text-[10px] text-zinc-600 ml-auto">vs periode sebelumnya</span>
       </div>
 
-      {/* KPI cards row */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
-        <StatCard
+      {/* ═══════════════════════════════════════════════════
+          SECTION 1: ACTION CENTER (owner/finance only)
+          ═══════════════════════════════════════════════════ */}
+      {isOwnerOrFinance && <ActionCenter />}
+
+      {/* ═══════════════════════════════════════════════════
+          SECTION 2: HERO SCOREBOARD (owner/finance only)
+          ═══════════════════════════════════════════════════ */}
+      {isOwnerOrFinance && <HeroScoreboard canEditTarget={isOwnerOrFinance} />}
+
+      {/* ═══════════════════════════════════════════════════
+          SECTION 3: KPI ROWS
+          ═══════════════════════════════════════════════════ */}
+      {/* Row 1 — Performance */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-3">
+        <KpiCard
           label="Real Omzet"
           value={formatRupiah(data?.omzet?.total ?? 0, true)}
-          sub={`${(data?.orders?.terkirim ?? 0) + (data?.orders?.perluDikirim ?? 0)} order (non-batal)`}
+          sub={`${data?.orders?.valid ?? 0} order valid`}
           icon={TrendingUp}
           color="emerald"
+          delta={data?.delta?.omzet}
+          spark={spark.omzet}
         />
-        <StatCard
+        {!isStaffOnly && (
+          <KpiCard
+            label="Gross Profit"
+            value={formatRupiah(data?.omzet?.grossProfit ?? 0, true)}
+            sub={data?.omzet?.total > 0 ? `${((data.omzet.grossProfit / data.omzet.total) * 100).toFixed(1)}% margin` : 'omzet - HPP'}
+            icon={ArrowUpRight}
+            color="blue"
+            delta={data?.delta?.grossProfit}
+            spark={spark.gp}
+          />
+        )}
+        {!isStaffOnly && (
+          <KpiCard
+            label="Net Profit"
+            value={formatRupiah(data?.omzet?.netProfit ?? 0, true)}
+            sub={`Margin: ${(data?.omzet?.netMargin ?? 0).toFixed(1)}%`}
+            icon={DollarSign}
+            color={data?.omzet?.netProfit >= 0 ? 'emerald' : 'red'}
+            delta={data?.delta?.netProfit}
+            spark={spark.net}
+          />
+        )}
+        <KpiCard
+          label="AOV"
+          value={formatRupiah(data?.orders?.aov ?? 0, true)}
+          sub="rata-rata per order"
+          icon={Target}
+          color="purple"
+          delta={data?.delta?.aov}
+          spark={spark.aov}
+        />
+      </div>
+
+      {/* Row 2 — Operations */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-3">
+        <KpiCard
           label="Perlu Dikirim"
           value={String(data?.orders?.perluDikirim ?? 0)}
           sub="order pending kirim"
           icon={Clock}
           color="yellow"
         />
-        {!isStaffOnly ? (
-          <div className="stat-card relative">
-            <div className="flex items-start justify-between gap-2">
-              <div className="min-w-0 flex-1">
-                <p className="text-zinc-500 text-xs mb-1">Gross Profit</p>
-                <p className="text-xl font-bold text-white truncate">
-                  {formatRupiah((data?.omzet?.total ?? 0) - (data?.omzet?.totalHpp ?? 0), true)}
-                </p>
-                <p className="text-zinc-600 text-[10px] mt-0.5">omzet - HPP</p>
-              </div>
-              <div className="p-2 rounded-lg border shrink-0 text-blue-400 bg-blue-900/20 border-blue-800/40">
-                <ArrowUpRight size={16} />
-              </div>
-            </div>
-          </div>
+        <KpiCard
+          label="Cancel Rate"
+          value={`${(data?.orders?.cancelRate ?? 0).toFixed(1)}%`}
+          sub={`${data?.orders?.batal ?? 0} dari ${data?.orders?.total ?? 0} order`}
+          icon={ArrowDownRight}
+          color="red"
+          delta={cancelRateDelta}
+          deltaInvert
+        />
+        <KpiCard
+          label="Stok Kritis"
+          value={String(data?.stock?.lowStockCount ?? 0)}
+          sub="produk perlu restock"
+          icon={AlertTriangle}
+          color="orange"
+        />
+        {isOwnerOrFinance ? (
+          <KpiCard
+            label="Total Saldo Kas"
+            value={formatRupiah(data?.wallet?.totalSaldo ?? 0, true)}
+            sub={`${data?.wallet?.wallets?.length ?? 0} wallet aktif`}
+            icon={Wallet}
+            color="cyan"
+          />
         ) : (
-          <StatCard
+          <KpiCard
             label="Total Order"
-            value={String((data?.orders?.terkirim ?? 0) + (data?.orders?.perluDikirim ?? 0))}
+            value={String(data?.orders?.valid ?? 0)}
             sub="terkirim + pending"
             icon={ShoppingCart}
             color="blue"
           />
         )}
-        <StatCard
-          label="Stok Kritis"
-          value={String(data?.stock?.lowStockCount ?? 0)}
-          sub="produk perlu restock"
-          icon={AlertTriangle}
-          color="red"
+      </div>
+
+      {/* Row 3 — Owner-only Cashflow KPIs */}
+      {isOwnerOrFinance && (
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
+          <KpiCard
+            label="Ads Spend"
+            value={formatRupiah(data?.omzet?.totalAdSpend ?? 0, true)}
+            sub={data?.omzet?.total > 0 ? `${((data.omzet.totalAdSpend / data.omzet.total) * 100).toFixed(1)}% of omzet` : '-'}
+            icon={Banknote}
+            color="orange"
+            delta={data?.delta?.adSpend}
+            deltaInvert
+          />
+          <KpiCard
+            label="Operating Expense"
+            value={formatRupiah(data?.omzet?.totalOpEx ?? 0, true)}
+            sub="biaya non-iklan"
+            icon={Banknote}
+            color="pink"
+            delta={data?.delta?.opEx}
+            deltaInvert
+          />
+          <KpiCard
+            label="Piutang Outstanding"
+            value={formatRupiah(data?.receivable?.piutang?.total ?? 0, true)}
+            sub={`${data?.receivable?.piutang?.count ?? 0} item${(data?.receivable?.piutang?.overdue ?? 0) > 0 ? ` • ${formatRupiah(data.receivable.piutang.overdue, true)} overdue` : ''}`}
+            icon={FileWarning}
+            color={(data?.receivable?.piutang?.overdue ?? 0) > 0 ? 'orange' : 'cyan'}
+          />
+          <KpiCard
+            label="Utang Outstanding"
+            value={formatRupiah(data?.receivable?.utang?.total ?? 0, true)}
+            sub={`${data?.receivable?.utang?.count ?? 0} item${(data?.receivable?.utang?.overdue ?? 0) > 0 ? ` • ${formatRupiah(data.receivable.utang.overdue, true)} overdue` : ''}`}
+            icon={FileWarning}
+            color={(data?.receivable?.utang?.overdue ?? 0) > 0 ? 'red' : 'purple'}
+          />
+        </div>
+      )}
+
+      {/* ═══════════════════════════════════════════════════
+          SECTION 4: TREND CHARTS
+          ═══════════════════════════════════════════════════ */}
+      <SectionHeader
+        icon={TrendingUp}
+        title="Trend Harian"
+        description={rangeLabel}
+        collapsible
+        storageKey="dash.section.trends"
+      >
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+          {/* Omzet & GP trend */}
+          <div className="stat-card lg:col-span-2">
+            <div className="flex items-center justify-between mb-3">
+              <div>
+                <p className="text-sm font-medium text-zinc-300">Trend Omzet & Profit Harian</p>
+                <p className="text-xs text-zinc-600 mt-0.5">{rangeLabel}</p>
+              </div>
+            </div>
+            {isLoading ? (
+              <div className="h-[240px] bg-zinc-800/40 rounded animate-pulse" />
+            ) : (
+              <TrendChart trend={data?.trend ?? []} />
+            )}
+          </div>
+
+          {/* Order trend stacked */}
+          <div className="stat-card">
+            <div className="flex items-center justify-between mb-3">
+              <p className="text-sm font-medium text-zinc-300">Order Harian</p>
+              <span className="text-[10px] text-zinc-600">valid vs batal</span>
+            </div>
+            {isLoading ? (
+              <div className="h-[180px] bg-zinc-800/40 rounded animate-pulse" />
+            ) : (
+              <OrderTrendChart trend={data?.trend ?? []} />
+            )}
+            {/* P&L mini summary owner */}
+            {isOwnerOrFinance && !isLoading && (
+              <div className="mt-3 pt-3 border-t border-zinc-800 space-y-1 text-[11px]">
+                <div className="flex justify-between text-zinc-500">
+                  <span>Omzet</span>
+                  <span className="text-zinc-300">{formatRupiah(data?.omzet?.total ?? 0, true)}</span>
+                </div>
+                <div className="flex justify-between text-zinc-500">
+                  <span>HPP</span>
+                  <span className="text-red-400">({formatRupiah(data?.omzet?.totalHpp ?? 0, true)})</span>
+                </div>
+                <div className="flex justify-between text-zinc-500">
+                  <span>Ads</span>
+                  <span className="text-red-400">({formatRupiah(data?.omzet?.totalAdSpend ?? 0, true)})</span>
+                </div>
+                <div className="flex justify-between text-zinc-500">
+                  <span>OpEx</span>
+                  <span className="text-red-400">({formatRupiah(data?.omzet?.totalOpEx ?? 0, true)})</span>
+                </div>
+                <div className="flex justify-between pt-1 border-t border-zinc-800 font-bold">
+                  <span className="text-zinc-300">Net Profit</span>
+                  <span className={data?.omzet?.netProfit >= 0 ? 'text-emerald-400' : 'text-red-400'}>
+                    {formatRupiah(data?.omzet?.netProfit ?? 0, true)}
+                  </span>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      </SectionHeader>
+
+      {/* ═══════════════════════════════════════════════════
+          SECTION 5: PROFITABILITY (owner/finance only)
+          ═══════════════════════════════════════════════════ */}
+      {isOwnerOrFinance && (
+        <ProfitabilitySection
+          dateFrom={dateFrom}
+          dateTo={dateTo}
+          rangeLabel={rangeLabel}
+          platformBreakdown={data?.omzet?.byPlatform ?? []}
+          enabled={!isCompact}
         />
-      </div>
+      )}
 
-      {/* Main grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-4">
+      {/* ═══════════════════════════════════════════════════
+          SECTION 6: CASHFLOW (owner/finance only)
+          ═══════════════════════════════════════════════════ */}
+      {isOwnerOrFinance && (
+        <CashflowSection
+          walletData={
+            data?.wallet
+              ? {
+                  wallets: data.wallet.wallets ?? [],
+                  totalBalance: data.wallet.totalSaldo ?? 0,
+                }
+              : null
+          }
+          enabled={!isCompact}
+        />
+      )}
 
-        {/* Aging backlog */}
-        <div className="stat-card lg:col-span-2">
-          <div className="flex items-center justify-between mb-4">
-            <div>
-              <p className="text-sm font-medium text-zinc-300">Aging Backlog</p>
-              <p className="text-xs text-zinc-600 mt-0.5">{totalAgingBacklog} order belum dikirim</p>
-            </div>
-            <span className={`text-xs font-bold px-2 py-1 rounded-lg ${
-              totalAgingBacklog > 50 ? 'bg-red-900/30 text-red-400' :
-              totalAgingBacklog > 20 ? 'bg-yellow-900/30 text-yellow-400' :
-              'bg-emerald-900/30 text-emerald-400'
-            }`}>{totalAgingBacklog} order</span>
-          </div>
-          {isLoading ? (
-            <div className="space-y-2">
-              {[1,2,3,4].map(i => <div key={i} className="h-6 bg-zinc-800 rounded animate-pulse" />)}
-            </div>
-          ) : (
-            <AgingBars aging={data?.aging ?? []} />
-          )}
-        </div>
+      {/* ═══════════════════════════════════════════════════
+          SECTION 7: AR/AP (owner/finance only)
+          ═══════════════════════════════════════════════════ */}
+      {isOwnerOrFinance && (
+        <ArApSection enabled={!isCompact} />
+      )}
 
-        {/* Wallet */}
-        {canEdit && (
-          <div className="stat-card">
-            <p className="text-sm font-medium text-zinc-300 mb-1 flex items-center gap-1.5">
-              <Wallet size={13} /> Saldo Wallet
-            </p>
-            <p className="text-xl font-bold text-emerald-400 mb-3">
-              {formatRupiah(data?.wallet?.totalSaldo ?? 0, true)}
-            </p>
-            <div className="space-y-1.5">
-              {isLoading ? (
-                [1,2,3].map(i => <div key={i} className="h-4 bg-zinc-800 rounded animate-pulse" />)
-              ) : (
-                (data?.wallet?.wallets ?? []).map((w: any) => (
-                  <div key={w.id} className="flex items-center justify-between">
-                    <span className="text-xs text-zinc-500 truncate flex-1 mr-2">{w.name}</span>
-                    <span className={`text-xs font-medium ${w.balance >= 0 ? 'text-white' : 'text-red-400'}`}>
-                      {formatRupiah(w.balance, true)}
-                    </span>
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
-        )}
-      </div>
+      {/* ═══════════════════════════════════════════════════
+          SECTION 8: INVENTORY HEALTH
+          ═══════════════════════════════════════════════════ */}
+      <InventoryHealthSection enabled={!isCompact} />
 
-      {/* Second row */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
-
-        {/* Omzet per platform */}
-        <div className="stat-card">
-          <div className="flex items-center justify-between mb-4">
-            <p className="text-sm font-medium text-zinc-300">Omzet per Platform</p>
-            <p className="text-xs text-zinc-600">{dateFrom} – {dateTo}</p>
-          </div>
-          {isLoading ? (
-            <div className="space-y-2">{[1,2].map(i => <div key={i} className="h-8 bg-zinc-800 rounded animate-pulse" />)}</div>
-          ) : (
-            <PlatformBreakdown data={data?.omzet?.byPlatform ?? []} showGp={!isStaffOnly} />
-          )}
-          {!isStaffOnly && (
-            <div className="mt-3 pt-3 border-t border-zinc-800 flex justify-between">
-              <span className="text-xs text-zinc-500">Total GP</span>
-              <span className="text-xs font-bold text-emerald-400">
-                {formatRupiah((data?.omzet?.total ?? 0) - (data?.omzet?.totalHpp ?? 0), true)}
-              </span>
-            </div>
-          )}
-        </div>
-
-        {/* Top provinsi + Payout summary */}
-        <div className="space-y-4">
-          {canEdit && (
-            <div className="stat-card">
-              <p className="text-sm font-medium text-zinc-300 mb-3">Payout (dalam range)</p>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <p className="text-xs text-zinc-500">Jumlah Order</p>
-                  <p className="text-lg font-bold text-white">{data?.payout?.count ?? 0}</p>
-                </div>
-                <div>
-                  <p className="text-xs text-zinc-500">Total Cair</p>
-                  <p className="text-lg font-bold text-emerald-400">
-                    {formatRupiah(data?.payout?.totalIncome ?? 0, true)}
-                  </p>
-                </div>
-              </div>
-            </div>
-          )}
-
-          <div className="stat-card">
-            <p className="text-sm font-medium text-zinc-300 mb-3">Top Provinsi</p>
-            {isLoading ? (
-              <div className="space-y-1">{[1,2,3,4,5].map(i => <div key={i} className="h-4 bg-zinc-800 rounded animate-pulse" />)}</div>
-            ) : (data?.geo?.topProvinces ?? []).length === 0 ? (
-              <p className="text-xs text-zinc-600">Belum ada data</p>
-            ) : (
-              <div className="space-y-1.5 max-h-[200px] overflow-y-auto pr-1 scrollbar-thin scrollbar-thumb-zinc-700 scrollbar-track-transparent">
-                {(data?.geo?.topProvinces ?? []).map((p: any, i: number) => (
-                  <div key={p.province} className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <span className="text-[10px] text-zinc-700 w-4">{i + 1}</span>
-                      <span className="text-xs text-zinc-400 truncate">{p.province}</span>
-                    </div>
-                    <span className="text-xs font-medium text-zinc-300">{p.count}</span>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          <div className="stat-card">
-            <p className="text-sm font-medium text-zinc-300 mb-3">Top Kota</p>
-            {isLoading ? (
-              <div className="space-y-1">{[1,2,3,4,5].map(i => <div key={i} className="h-4 bg-zinc-800 rounded animate-pulse" />)}</div>
-            ) : (data?.geo?.topCities ?? []).length === 0 ? (
-              <p className="text-xs text-zinc-600">Belum ada data</p>
-            ) : (
-              <div className="space-y-1.5 max-h-[200px] overflow-y-auto pr-1 scrollbar-thin scrollbar-thumb-zinc-700 scrollbar-track-transparent">
-                {(data?.geo?.topCities ?? []).map((c: any, i: number) => (
-                  <div key={c.city} className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <span className="text-[10px] text-zinc-700 w-4">{i + 1}</span>
-                      <span className="text-xs text-zinc-400 truncate">{c.city}</span>
-                    </div>
-                    <span className="text-xs font-medium text-zinc-300">{c.count}</span>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
+      {/* ═══════════════════════════════════════════════════
+          SECTION 9: OPERATIONS & GEOGRAPHY
+          ═══════════════════════════════════════════════════ */}
+      <OperationsSection
+        data={data ? { aging: data.aging, geo: data.geo, payout: data.payout } : null}
+        isLoading={isLoading}
+        rangeLabel={rangeLabel}
+        canEdit={isOwnerOrFinance}
+      />
     </AppLayout>
   )
 }
