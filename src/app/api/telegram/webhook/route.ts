@@ -17,7 +17,8 @@ import { processWithAI } from '@/lib/telegram-ai'
 import { buildDailyReport } from '@/lib/daily-report'
 import { buildWeeklyReport } from '@/lib/weekly-report'
 import { buildMonthlyReport } from '@/lib/monthly-report'
-import { isQuickCommand, renderQuickCommand } from '@/lib/quick-commands'
+import { isQuickCommand, renderQuickCommand, type QuickCommandKey } from '@/lib/quick-commands'
+import { getMenuByKey, type InlineKeyboard } from '@/lib/telegram-menu'
 
 // Chat ID yang diizinkan (owner + group IDs, comma-separated)
 const OWNER_CHAT_ID = process.env.TELEGRAM_OWNER_CHAT_ID || '565228988'
@@ -35,7 +36,12 @@ async function getBotToken(): Promise<string | null> {
     }
 }
 
-async function sendReply(chatId: string | number, text: string, threadId?: number) {
+async function sendReply(
+    chatId: string | number,
+    text: string,
+    threadId?: number,
+    keyboard?: InlineKeyboard,
+) {
     const token = await getBotToken()
     if (!token) {
         console.error('[webhook] Bot token tidak ditemukan')
@@ -62,13 +68,19 @@ async function sendReply(chatId: string | number, text: string, threadId?: numbe
         }
     }
 
-    for (const chunk of chunks) {
+    for (let i = 0; i < chunks.length; i++) {
+        const chunk = chunks[i]
+        const isLast = i === chunks.length - 1
         const payload: Record<string, any> = {
             chat_id: chatId,
             text: chunk,
             parse_mode: 'HTML',
         }
         if (threadId) payload.message_thread_id = threadId
+        // Keyboard hanya di chunk terakhir (Telegram cuma tampilkan di pesan terakhir)
+        if (isLast && keyboard && keyboard.length > 0) {
+            payload.reply_markup = { inline_keyboard: keyboard }
+        }
 
         try {
             const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
@@ -81,16 +93,78 @@ async function sendReply(chatId: string | number, text: string, threadId?: numbe
                 console.error(`[webhook] Telegram sendMessage error ${res.status}:`, body)
                 // Jika HTML parse error, coba kirim ulang tanpa parse_mode
                 if (res.status === 400 && body.includes("can't parse entities")) {
+                    const fallbackPayload: Record<string, any> = {
+                        chat_id: chatId,
+                        text: chunk,
+                        ...(threadId ? { message_thread_id: threadId } : {}),
+                    }
+                    if (isLast && keyboard && keyboard.length > 0) {
+                        fallbackPayload.reply_markup = { inline_keyboard: keyboard }
+                    }
                     await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ chat_id: chatId, text: chunk, ...(threadId ? { message_thread_id: threadId } : {}) }),
+                        body: JSON.stringify(fallbackPayload),
                     })
                 }
             }
         } catch (err) {
             console.error('[webhook] Gagal kirim reply:', err)
         }
+    }
+}
+
+// Acknowledge callback query — menghilangkan loading spinner di tombol
+async function answerCallback(callbackQueryId: string, text?: string) {
+    const token = await getBotToken()
+    if (!token) return
+    try {
+        await fetch(`https://api.telegram.org/bot${token}/answerCallbackQuery`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                callback_query_id: callbackQueryId,
+                ...(text ? { text } : {}),
+            }),
+        })
+    } catch (err) {
+        console.error('[webhook] Gagal answerCallbackQuery:', err)
+    }
+}
+
+// Edit existing message — untuk navigasi sub-menu agar tidak spam pesan baru
+async function editMessage(
+    chatId: string | number,
+    messageId: number,
+    text: string,
+    keyboard?: InlineKeyboard,
+) {
+    const token = await getBotToken()
+    if (!token) return
+    const payload: Record<string, any> = {
+        chat_id: chatId,
+        message_id: messageId,
+        text,
+        parse_mode: 'HTML',
+    }
+    if (keyboard && keyboard.length > 0) {
+        payload.reply_markup = { inline_keyboard: keyboard }
+    }
+    try {
+        const res = await fetch(`https://api.telegram.org/bot${token}/editMessageText`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+        })
+        if (!res.ok) {
+            const body = await res.text()
+            // "message is not modified" bukan error fatal
+            if (!body.includes('message is not modified')) {
+                console.error(`[webhook] editMessageText error ${res.status}:`, body)
+            }
+        }
+    } catch (err) {
+        console.error('[webhook] Gagal editMessage:', err)
     }
 }
 
@@ -111,6 +185,8 @@ async function sendTyping(chatId: string | number) {
 // ─────────────────────────────────────────────
 function getHelpText(): string {
     return `🤖 <b>Elyasr AI Assistant</b>
+
+Tip: Kirim /menu untuk navigasi via tombol.
 
 <b>📊 Penjualan & Order:</b>
 /top10 — Top 10 produk terlaris (7 hari)
@@ -165,7 +241,18 @@ async function processMessage(chatId: number, text: string, threadId?: number) {
         let reply = ''
 
         if (cmd === '/start') {
-            reply = `👋 Halo! Saya <b>Elyasr AI Assistant</b>.\n\nKirim /help untuk lihat daftar perintah, atau tanya langsung dengan bahasa bebas!\n\nContoh: "produk apa yang paling laku minggu ini?"`
+            const main = getMenuByKey('main')!
+            await sendReply(
+                chatId,
+                `👋 Halo! Saya <b>Elyasr AI Assistant</b>.\n\nPilih menu di bawah, atau tanya bebas dengan bahasa natural.\n\nContoh: "produk apa yang paling laku minggu ini?"`,
+                threadId,
+                main.keyboard,
+            )
+            return
+        } else if (cmd === '/menu') {
+            const main = getMenuByKey('main')!
+            await sendReply(chatId, main.text, threadId, main.keyboard)
+            return
         } else if (cmd === '/help') {
             reply = getHelpText()
         } else if (cmd === '/laporan') {
@@ -204,6 +291,73 @@ async function processMessage(chatId: number, text: string, threadId?: number) {
 }
 
 // ─────────────────────────────────────────────
+// Callback query processor — handle inline keyboard taps
+// ─────────────────────────────────────────────
+async function processCallback(
+    chatId: number,
+    messageId: number,
+    callbackQueryId: string,
+    data: string,
+    threadId?: number,
+) {
+    try {
+        // Format: "menu:KEY", "cmd:/COMMAND", "report:daily|weekly|monthly"
+        if (data.startsWith('menu:')) {
+            const key = data.slice(5)
+            const payload = getMenuByKey(key)
+            if (!payload) {
+                await answerCallback(callbackQueryId, 'Menu tidak ditemukan')
+                return
+            }
+            await answerCallback(callbackQueryId)
+            // Edit pesan yang sama untuk navigasi (pengalaman lebih bersih)
+            await editMessage(chatId, messageId, payload.text, payload.keyboard)
+            return
+        }
+
+        if (data.startsWith('cmd:')) {
+            const cmd = data.slice(4) as QuickCommandKey
+            if (!isQuickCommand(cmd)) {
+                await answerCallback(callbackQueryId, 'Command tidak dikenal')
+                return
+            }
+            await answerCallback(callbackQueryId, '⏳ Memuat...')
+            await sendTyping(chatId)
+            const reply = await renderQuickCommand(cmd)
+            // Tambahkan tombol "back to menu" di bawah hasil
+            await sendReply(chatId, reply, threadId, [[
+                { text: '« Kembali ke Menu', callback_data: 'menu:main' },
+            ]])
+            return
+        }
+
+        if (data.startsWith('report:')) {
+            const which = data.slice(7)
+            await answerCallback(callbackQueryId, '⏳ Menyiapkan laporan...')
+            await sendTyping(chatId)
+            let report = ''
+            if (which === 'daily')        report = await buildDailyReport()
+            else if (which === 'weekly')  report = await buildWeeklyReport()
+            else if (which === 'monthly') report = await buildMonthlyReport()
+            else {
+                await sendReply(chatId, 'Jenis laporan tidak dikenal.', threadId)
+                return
+            }
+            await sendReply(chatId, report, threadId, [[
+                { text: '« Kembali ke Menu', callback_data: 'menu:main' },
+            ]])
+            return
+        }
+
+        await answerCallback(callbackQueryId, 'Aksi tidak dikenal')
+    } catch (err: any) {
+        console.error('[webhook] Error processCallback:', err)
+        try { await answerCallback(callbackQueryId, '❌ Error') } catch {}
+        await sendReply(chatId, `❌ Error: ${err.message || 'Unknown'}`, threadId)
+    }
+}
+
+// ─────────────────────────────────────────────
 // Main webhook handler
 // ─────────────────────────────────────────────
 export async function POST(req: NextRequest) {
@@ -214,7 +368,45 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ ok: true })
     }
 
-    // Hanya proses message (bukan callback_query, edited_message, dll)
+    // Whitelist setup (dipakai bersama untuk message & callback_query)
+    const ownerIds = OWNER_CHAT_ID.split(',').map(s => s.trim()).filter(Boolean)
+    if (ownerIds.length === 0) {
+        console.error('[webhook] TELEGRAM_OWNER_CHAT_ID belum dikonfigurasi!')
+        return NextResponse.json({ ok: true })
+    }
+
+    // ─── Handle callback_query (inline keyboard taps) ──
+    const callbackQuery = body?.callback_query
+    if (callbackQuery) {
+        const cbChatId = callbackQuery.message?.chat?.id
+        const cbFromId = callbackQuery.from?.id
+        const cbMessageId = callbackQuery.message?.message_id
+        const cbThreadId = callbackQuery.message?.message_thread_id
+        const cbData = (callbackQuery.data || '').trim()
+        const cbQueryId = callbackQuery.id
+
+        const isOwnerCb = ownerIds.includes(String(cbFromId)) || ownerIds.includes(String(cbChatId))
+        if (!isOwnerCb) {
+            console.log(`[webhook] Callback dari non-owner diabaikan: fromId=${cbFromId}`)
+            // Tetap acknowledge agar tidak loading di tombolnya
+            await answerCallback(cbQueryId)
+            return NextResponse.json({ ok: true })
+        }
+
+        if (!cbData || !cbChatId || !cbMessageId) {
+            return NextResponse.json({ ok: true })
+        }
+
+        console.log(`[webhook] Callback dari owner: "${cbData}" (from=${cbFromId})`)
+
+        // Fire-and-forget agar Telegram tidak timeout
+        processCallback(cbChatId, cbMessageId, cbQueryId, cbData, cbThreadId).catch(err => {
+            console.error('[webhook] Unhandled error processCallback:', err)
+        })
+        return NextResponse.json({ ok: true })
+    }
+
+    // ─── Handle text message ───────────────────
     const message = body?.message
     if (!message) return NextResponse.json({ ok: true })
 
@@ -222,15 +414,6 @@ export async function POST(req: NextRequest) {
     const fromId = message.from?.id
     const threadId = message.message_thread_id
     const text = (message.text || '').trim()
-
-    // ─── Whitelist check ───────────────────────
-    // Support: owner chat ID, group chat ID, atau keduanya (comma-separated)
-    const ownerIds = OWNER_CHAT_ID.split(',').map(s => s.trim()).filter(Boolean)
-
-    if (ownerIds.length === 0) {
-        console.error('[webhook] TELEGRAM_OWNER_CHAT_ID belum dikonfigurasi!')
-        return NextResponse.json({ ok: true })
-    }
 
     const isOwner = ownerIds.includes(String(fromId)) || ownerIds.includes(String(chatId))
 
@@ -244,8 +427,6 @@ export async function POST(req: NextRequest) {
     console.log(`[webhook] Pesan dari owner: "${text.slice(0, 100)}" (from=${fromId}, chat=${chatId})`)
 
     // ─── Fire-and-forget: respond 200 immediately, process in background ───
-    // Ini KRUSIAL agar Telegram tidak timeout dan retry.
-    // Di Node.js standalone (Docker), promise yang tidak di-await tetap berjalan.
     processMessage(chatId, text, threadId).catch(err => {
         console.error('[webhook] Unhandled error in background processing:', err)
     })
