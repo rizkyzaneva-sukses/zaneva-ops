@@ -2,8 +2,8 @@ name: Daily Telegram Report
 
 on:
   schedule:
-    # 10:30 UTC = 17:30 WIB
-    - cron: '30 10 * * *'
+    # 03:03 UTC = 10:03 WIB (TEST — ganti ke '30 10 * * *' untuk 17:30 WIB)
+    - cron: '3 3 * * *'
   workflow_dispatch: # bisa trigger manual dari GitHub
 
 jobs:
