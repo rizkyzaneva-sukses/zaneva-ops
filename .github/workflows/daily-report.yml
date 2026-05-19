@@ -1,0 +1,35 @@
+name: Daily Telegram Report
+
+on:
+  schedule:
+    # 10:30 UTC = 17:30 WIB
+    - cron: '30 10 * * *'
+  workflow_dispatch: # bisa trigger manual dari GitHub
+
+jobs:
+  send-report:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger laporan harian
+        run: |
+          response=$(curl -s -o /tmp/resp.json -w "%{http_code}" \
+            -H "Authorization: Bearer ${{ secrets.REPORT_API_KEY }}" \
+            "${{ secrets.APP_URL }}/api/report/cron-telegram")
+
+          echo "HTTP status: $response"
+          echo "Response body:"
+          cat /tmp/resp.json
+
+          if [ "$response" != "200" ]; then
+            echo "❌ Gagal kirim laporan (HTTP $response)"
+            exit 1
+          fi
+
+          success=$(cat /tmp/resp.json | python3 -c "import sys,json; print(json.load(sys.stdin).get('success', False))")
+          if [ "$success" != "True" ]; then
+            echo "❌ API mengembalikan success: false"
+            cat /tmp/resp.json
+            exit 1
+          fi
+
+          echo "✅ Laporan berhasil dikirim"
