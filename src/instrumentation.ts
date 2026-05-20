@@ -24,6 +24,13 @@ export async function register() {
 
         const fallbackCron = process.env.DAILY_REPORT_CRON ?? '30 17 * * *' // default 17:30 WIB
 
+        function parseCronPart(value: string | undefined, fallback: number): number {
+            const raw = value?.trim()
+            if (!raw) return fallback
+            const parsed = Number.parseInt(raw, 10)
+            return Number.isFinite(parsed) ? parsed : fallback
+        }
+
         // Baca schedule dari DB — buat default kalau belum ada
         async function getSchedule(): Promise<{ hour: number; minute: number; isActive: boolean }> {
             try {
@@ -34,12 +41,12 @@ export async function register() {
                     })
                 }
                 const parts  = sched.cronSchedule.split(' ')
-                const minute = parseInt(parts[0]) || 30
-                const hour   = parseInt(parts[1]) || 17
+                const minute = parseCronPart(parts[0], 30)
+                const hour   = parseCronPart(parts[1], 17)
                 return { minute, hour, isActive: sched.isActive }
             } catch {
                 const parts  = fallbackCron.split(' ')
-                return { minute: parseInt(parts[0]) || 30, hour: parseInt(parts[1]) || 17, isActive: true }
+                return { minute: parseCronPart(parts[0], 30), hour: parseCronPart(parts[1], 17), isActive: true }
             }
         }
 
@@ -63,22 +70,42 @@ export async function register() {
             })
         }
 
+        async function markSetting(settingKey: string, value: string) {
+            await prisma.appSetting.upsert({
+                where:  { key: settingKey },
+                update: { value, updatedBy: 'system-cron' },
+                create: { key: settingKey, value, updatedBy: 'system-cron' },
+            })
+        }
+
         // ─── Daily Report Scheduler ───────────────────────────────────────
         let lastDailySent: string | null = null
+        let dailySending = false
+        let lastHeartbeatBucket: string | null = null
 
         nodeCron.schedule('* * * * *', async () => {
             try {
                 const { hour, minute, isActive } = await getSchedule()
-                if (!isActive) return
 
                 const nowJkt = new Date().toLocaleString('en-US', { timeZone: 'Asia/Jakarta' })
                 const d      = new Date(nowJkt)
                 const today  = d.toLocaleDateString('en-CA')
+                const currentTotalMin   = d.getHours() * 60 + d.getMinutes()
+
+                const heartbeatBucket = `${today}:${Math.floor(currentTotalMin / 5)}`
+                if (lastHeartbeatBucket !== heartbeatBucket) {
+                    lastHeartbeatBucket = heartbeatBucket
+                    await markSetting('scheduler_heartbeat', new Date().toISOString())
+                    await markSetting('scheduler_last_wib', `${today} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`)
+                    await markSetting('scheduler_schedule', `${String(hour).padStart(2,'0')}:${String(minute).padStart(2,'0')} WIB`)
+                }
+
+                if (!isActive) return
 
                 if (lastDailySent === today) return
+                if (dailySending) return
 
                 const scheduledTotalMin = hour * 60 + minute
-                const currentTotalMin   = d.getHours() * 60 + d.getMinutes()
                 const inWindow = currentTotalMin >= scheduledTotalMin && currentTotalMin < scheduledTotalMin + 30
                 if (!inWindow) return
 
@@ -87,20 +114,24 @@ export async function register() {
                     return
                 }
 
-                lastDailySent = today
+                dailySending = true
                 console.log(`[daily-report] 🚀 ${d.getHours()}:${String(d.getMinutes()).padStart(2,'0')} WIB — kirim laporan harian (jadwal: ${hour}:${String(minute).padStart(2,'0')})...`)
 
                 const report           = await buildDailyReport()
                 const { sent, failed } = await broadcastTelegramReport(report)
 
                 console.log(`[daily-report] ✅ Selesai — terkirim: ${sent}, gagal: ${failed}`)
-                await markSent('last_auto_report_sent')
 
-                if (failed > 0 && sent === 0) {
+                if (sent > 0) {
+                    lastDailySent = today
+                    await markSent('last_auto_report_sent')
+                } else if (failed > 0) {
                     console.error('[daily-report] ❌ Semua pengiriman gagal. Cek bot token & chat ID.')
                 }
             } catch (err) {
                 console.error('[daily-report] ❌ Error saat kirim laporan:', err)
+            } finally {
+                dailySending = false
             }
         }, { timezone: 'Asia/Jakarta' })
 
@@ -108,6 +139,7 @@ export async function register() {
 
         // ─── Weekly Report Scheduler — Senin 08:00 WIB ───────────────────
         let lastWeeklySent: string | null = null
+        let weeklySending = false
 
         nodeCron.schedule('* * * * *', async () => {
             try {
@@ -118,6 +150,7 @@ export async function register() {
                 // Hanya hari Senin (getDay() === 1)
                 if (d.getDay() !== 1) return
                 if (lastWeeklySent === today) return
+                if (weeklySending) return
 
                 // Window: 08:00 – 08:29 WIB
                 const scheduledMin = 8 * 60
@@ -130,15 +163,20 @@ export async function register() {
                     return
                 }
 
-                lastWeeklySent = today
+                weeklySending = true
                 console.log(`[weekly-report] 🚀 ${d.getHours()}:${String(d.getMinutes()).padStart(2,'0')} WIB — kirim laporan mingguan...`)
 
                 const report = await buildWeeklyReport()
                 const { sent, failed } = await broadcastTelegramReport(report)
                 console.log(`[weekly-report] ✅ Selesai — terkirim: ${sent}, gagal: ${failed}`)
-                await markSent('last_weekly_report_sent')
+                if (sent > 0) {
+                    lastWeeklySent = today
+                    await markSent('last_weekly_report_sent')
+                }
             } catch (err) {
                 console.error('[weekly-report] ❌ Error:', err)
+            } finally {
+                weeklySending = false
             }
         }, { timezone: 'Asia/Jakarta' })
 
@@ -146,6 +184,7 @@ export async function register() {
 
         // ─── Monthly Report Scheduler — Tanggal 1, 09:00 WIB ─────────────
         let lastMonthlySent: string | null = null
+        let monthlySending = false
 
         nodeCron.schedule('* * * * *', async () => {
             try {
@@ -156,6 +195,7 @@ export async function register() {
                 // Hanya tanggal 1
                 if (d.getDate() !== 1) return
                 if (lastMonthlySent === today) return
+                if (monthlySending) return
 
                 // Window: 09:00 – 09:29 WIB
                 const scheduledMin = 9 * 60
@@ -168,15 +208,20 @@ export async function register() {
                     return
                 }
 
-                lastMonthlySent = today
+                monthlySending = true
                 console.log(`[monthly-report] 🚀 ${d.getHours()}:${String(d.getMinutes()).padStart(2,'0')} WIB — kirim laporan bulanan...`)
 
                 const report = await buildMonthlyReport()
                 const { sent, failed } = await broadcastTelegramReport(report)
                 console.log(`[monthly-report] ✅ Selesai — terkirim: ${sent}, gagal: ${failed}`)
-                await markSent('last_monthly_report_sent')
+                if (sent > 0) {
+                    lastMonthlySent = today
+                    await markSent('last_monthly_report_sent')
+                }
             } catch (err) {
                 console.error('[monthly-report] ❌ Error:', err)
+            } finally {
+                monthlySending = false
             }
         }, { timezone: 'Asia/Jakarta' })
 

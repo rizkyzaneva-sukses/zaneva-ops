@@ -848,19 +848,17 @@ function TelegramSection() {
   }
 
   const handleSendNow = async () => {
-    if (!botToken || !chatId) {
-      toast({ title: 'Simpan konfigurasi Telegram dulu!', type: 'error' })
+    const activeRecipientCount = recipients.filter(r => r.isActive).length
+    if (!botToken || (!chatId && activeRecipientCount === 0)) {
+      toast({ title: 'Simpan Bot Token dan minimal satu penerima Telegram dulu!', type: 'error' })
       return
     }
     setSending(true)
     try {
-      const res = await fetch('/api/report/send-telegram', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({}),
-      })
+      const res = await fetch('/api/report/cron-telegram')
       const json = await res.json()
       if (!json.success) throw new Error(json.error)
+      setLastSent(json.sentAt ?? new Date().toISOString())
       toast({ title: '📊 Laporan harian berhasil dikirim ke Telegram!', type: 'success' })
     } catch (err: any) {
       toast({ title: `❌ ${err.message || 'Gagal kirim laporan'}`, type: 'error' })
@@ -872,6 +870,9 @@ function TelegramSection() {
       <Loader2 size={14} className="animate-spin" /> Memuat konfigurasi...
     </div>
   )
+
+  const activeRecipientCount = recipients.filter(r => r.isActive).length
+  const hasTelegramTarget = Boolean(botToken && (chatId || activeRecipientCount > 0))
 
   return (
     <div className="mt-8 pt-8 border-t border-zinc-800">
@@ -947,7 +948,7 @@ function TelegramSection() {
           <button
             type="button"
             onClick={handleSendNow}
-            disabled={sending || !botToken || !chatId}
+            disabled={sending || !hasTelegramTarget}
             className="flex items-center gap-2 bg-emerald-700 hover:bg-emerald-600 disabled:opacity-40 text-white rounded-lg px-4 py-2 text-sm font-medium transition-colors"
           >
             {sending ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
@@ -980,7 +981,7 @@ function TelegramSection() {
           <button
             type="button"
             onClick={handleToggleAuto}
-            disabled={togglingAuto || !botToken || !chatId}
+            disabled={togglingAuto || !hasTelegramTarget}
             className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors disabled:opacity-40 ${autoEnabled ? 'bg-emerald-600' : 'bg-zinc-700'}`}
           >
             <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${autoEnabled ? 'translate-x-6' : 'translate-x-1'}`} />

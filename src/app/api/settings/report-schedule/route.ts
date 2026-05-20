@@ -8,6 +8,13 @@ async function requireOwner() {
     return session
 }
 
+function parseCronPart(value: string | undefined, fallback: number): number {
+    const raw = value?.trim()
+    if (!raw) return fallback
+    const parsed = Number.parseInt(raw, 10)
+    return Number.isFinite(parsed) ? parsed : fallback
+}
+
 /**
  * GET /api/settings/report-schedule
  * Ambil jadwal auto-report. Buat default jika belum ada.
@@ -30,8 +37,8 @@ export async function GET() {
                 id:           sched.id,
                 cronSchedule: sched.cronSchedule,
                 isActive:     sched.isActive,
-                hour:         parseInt(parts[1]) || 17,
-                minute:       parseInt(parts[0]) || 30,
+                hour:         parseCronPart(parts[1], 17),
+                minute:       parseCronPart(parts[0], 30),
             },
         })
     } catch (err: any) {
@@ -63,8 +70,8 @@ export async function PUT(request: NextRequest) {
         }
 
         const parts    = sched.cronSchedule.split(' ')
-        const newMin   = minute   !== null ? minute   : (parseInt(parts[0]) || 30)
-        const newHour  = hour     !== null ? hour     : (parseInt(parts[1]) || 17)
+        const newMin   = minute   !== null ? minute   : parseCronPart(parts[0], 30)
+        const newHour  = hour     !== null ? hour     : parseCronPart(parts[1], 17)
         const newActive = isActive !== null ? isActive : sched.isActive
 
         // Validasi

@@ -2,6 +2,13 @@ import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { getSession } from '@/lib/session'
 
+function parseCronPart(value: string | undefined, fallback: number): number {
+    const raw = value?.trim()
+    if (!raw) return fallback
+    const parsed = Number.parseInt(raw, 10)
+    return Number.isFinite(parsed) ? parsed : fallback
+}
+
 /**
  * GET /api/report/scheduler-status
  * Cek status scheduler & kapan terakhir kirim laporan.
@@ -19,6 +26,9 @@ export async function GET() {
             'last_weekly_report_sent',
             'last_monthly_report_sent',
             'auto_report_enabled',
+            'scheduler_heartbeat',
+            'scheduler_last_wib',
+            'scheduler_schedule',
         ]
 
         const rows = await prisma.appSetting.findMany({ where: { key: { in: keys } } })
@@ -31,6 +41,9 @@ export async function GET() {
             ? new Date(data.last_auto_report_sent).toLocaleDateString('en-CA', { timeZone: 'Asia/Jakarta' })
             : null
         const sentToday = lastSentDay === todayWIB
+        const heartbeatAt = data.scheduler_heartbeat ? new Date(data.scheduler_heartbeat) : null
+        const heartbeatAgeMs = heartbeatAt ? Date.now() - heartbeatAt.getTime() : null
+        const schedulerAlive = heartbeatAgeMs !== null && heartbeatAgeMs >= 0 && heartbeatAgeMs < 10 * 60 * 1000
 
         // Ambil jadwal dari DB
         let scheduleInfo: { hour: number; minute: number; isActive: boolean } | null = null
@@ -38,8 +51,8 @@ export async function GET() {
             const sched = await prisma.reportSchedule.findFirst()
             if (sched) {
                 const parts  = sched.cronSchedule.split(' ')
-                const minute = parseInt(parts[0]) || 30
-                const hour   = parseInt(parts[1]) || 17
+                const minute = parseCronPart(parts[0], 30)
+                const hour   = parseCronPart(parts[1], 17)
                 scheduleInfo = { hour, minute, isActive: sched.isActive }
             }
         } catch { /* ignore */ }
@@ -47,12 +60,13 @@ export async function GET() {
         return NextResponse.json({
             success: true,
             scheduler: {
-                // node-cron di instrumentation.ts tidak punya heartbeat di DB,
-                // tapi kita bisa infersikan dari last_auto_report_sent
-                alive: true, // node-cron jalan selama proses Node.js hidup
+                alive: schedulerAlive,
+                heartbeatAt: data.scheduler_heartbeat,
+                heartbeatAgeSeconds: heartbeatAgeMs === null ? null : Math.round(heartbeatAgeMs / 1000),
+                lastWib: data.scheduler_last_wib,
                 schedule: scheduleInfo
                     ? `${String(scheduleInfo.hour).padStart(2,'0')}:${String(scheduleInfo.minute).padStart(2,'0')} WIB`
-                    : '17:30 WIB',
+                    : (data.scheduler_schedule ?? '17:30 WIB'),
                 isActive: scheduleInfo?.isActive ?? true,
             },
             autoReport: {
